@@ -34,7 +34,7 @@ export default defineConfig({
           __env__: `"${process.env.NODE_ENV}"`,
         },
         bundle: true,
-        target: "firefox115",
+        target: "firefox120",
         outfile: `build/addon/chrome/content/scripts/${pkg.config.addonRef}.js`,
       },
     ],
