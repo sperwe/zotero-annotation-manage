@@ -151,7 +151,7 @@ async function changeFromText(text: string, panel: HTMLDivElement, item: Zotero.
       "在这里判断是否在我的文库当中，不在文库当中显示添加到文库按钮",
       m,
     );
-    if (m) {
+    if (m && m.groups) {
       //检测本地是否存在
       const searchedItem = await searchItem({
         doi: m.groups.doi,

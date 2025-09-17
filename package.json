@@ -41,7 +41,7 @@
     "react-dom": "^18.3.1",
     "react-intl": "^6.8.9",
     "use-immer": "^0.10.0",
-    "zotero-plugin-toolkit": "^4.1.1"
+    "zotero-plugin-toolkit": "^4.1.2"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",
