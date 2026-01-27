@@ -1,4 +1,5 @@
-import { TagElementProps } from "zotero-plugin-toolkit/dist/tools/ui";
+// import { TagElementProps } from "zotero-plugin-toolkit/dist/tools/ui";
+import { TagElementProps } from "zotero-plugin-toolkit";
 import { config } from "../package.json";
 import { getAllAnnotations, exportNoteByType, exportSingleNote, exportNoteByColor } from "./modules/AnnotationsToNote";
 import { getSelectedItems } from "./modules/menu";

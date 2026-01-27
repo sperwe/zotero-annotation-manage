@@ -5,7 +5,8 @@ import { Relations } from "../utils/Relations";
 import { waitUtilAsync } from "../utils/wait";
 import { getPref } from "../utils/prefs";
 import { compare, sortAsc } from "../utils/sort";
-import { DialogHelper } from "zotero-plugin-toolkit/dist/helpers/dialog";
+import { DialogHelper } from "zotero-plugin-toolkit";
+// import { DialogHelper } from "zotero-plugin-toolkit/dist/helpers/dialog";
 
 function register() {
   Zotero.Reader.registerEventListener("renderToolbar", readerToolbarCallback, config.addonID);

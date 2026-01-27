@@ -28,33 +28,36 @@
     "release": "zotero-plugin release",
     "test": "echo \"Error: no test specified\" && exit 1",
     "update-deps": "npm update --save",
-    "postinstall": " cp -R  patches/react node_modules/ && cp -R  patches/react-dom node_modules/"
+    "postinstall": "node -e \"const fs = require('fs'); const path = require('path'); ['react', 'react-dom'].forEach(dir => { const src = path.join(__dirname, 'patches', dir); const dest = path.join(__dirname, 'node_modules', dir); if (fs.existsSync(src)) { fs.cpSync(src, dest, { recursive: true, force: true }); } });\""
   },
   "dependencies": {
-    "@types/react": "^18.3.18",
-    "@types/react-dom": "^18.3.5",
-    "@uiw/react-color-sketch": "^2.4.0",
+    "@types/react": "^18.3.27",
+    "@types/react-dom": "^18.3.7",
+    "@uiw/react-color-sketch": "^2.9.2",
     "classnames": "^2.5.1",
-    "immer": "^10.1.1",
+    "cp": "^0.2.0",
+    "immer": "^10.2.0",
     "react": "^18.3.1",
     "react-colorful": "^5.6.1",
     "react-dom": "^18.3.1",
     "react-intl": "^6.8.9",
     "use-immer": "^0.10.0",
-    "zotero-plugin-toolkit": "^4.1.1"
+    "zotero-plugin-toolkit": "^5.0.1"
   },
   "devDependencies": {
-    "@eslint/js": "^9.18.0",
-    "@types/node": "^20.17.13",
-    "eslint": "^8.57.1",
-    "eslint-plugin-react": "^7.37.4",
-    "globals": "^15.14.0",
-    "patch-package": "^8.0.0",
-    "prettier": "^3.4.2",
-    "typescript": "^5.7.3",
-    "typescript-eslint": "^8.20.0",
-    "zotero-plugin-scaffold": "^0.1.7",
-    "zotero-types": "^3.1.5"
+    "@eslint/js": "^9.30.1",
+    "@types/node": "^22.19.7",
+    "@typescript-eslint/eslint-plugin": "^8.54.0",
+    "@typescript-eslint/parser": "^8.54.0",
+    "eslint": "^9.39.2",
+    "eslint-plugin-react": "^7.37.5",
+    "globals": "^15.15.0",
+    "patch-package": "^8.0.1",
+    "prettier": "^3.8.1",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.54.0",
+    "zotero-plugin-scaffold": "^0.8.2",
+    "zotero-types": "^4.0.5"
   },
   "prettier": {
     "printWidth": 140,

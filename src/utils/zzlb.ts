@@ -4,12 +4,13 @@ import memoize from "./memoize2";
 import { config } from "../../package.json";
 import { getColorTags } from "../modules/menu";
 import { getCiteAnnotationHtml } from "../modules/getCitationItem";
-import { TagElementProps } from "zotero-plugin-toolkit/dist/tools/ui";
+// import { TagElementProps } from "zotero-plugin-toolkit/dist/tools/ui";
 import { waitFor } from "./wait";
 import { groupBy, groupByResult } from "./groupBy";
 import { uniqueBy } from "./uniqueBy";
-import { ProgressWindowHelper } from "zotero-plugin-toolkit/dist/helpers/progressWindow";
+// import { ProgressWindowHelper } from "zotero-plugin-toolkit/dist/helpers/progressWindow";
 import { getString } from "./locale";
+import { ProgressWindowHelper, TagElementProps } from "zotero-plugin-toolkit";
 export class TagColor {
   public color: string;
   public tag: string;
@@ -243,19 +244,19 @@ const memAllTagsInLibraryAsync = memoize(async () => {
     );
   const itemTags = getPref("item-tags")
     ? items.flatMap((f) =>
-      f.getTags().map((a) => ({
-        tag: a.tag,
-        type: a.type,
-        dateModified: f.dateModified,
-      })),
-    )
+        f.getTags().map((a) => ({
+          tag: a.tag,
+          type: a.type,
+          dateModified: f.dateModified,
+        })),
+      )
     : [];
   return groupBy([...tags, ...itemTags], (t14) => t14.tag);
 });
 export async function asyncGetAllTagsFromDB() {
   //使用异步查询优化性能
   const rows = await Zotero.DB.queryAsync(
-    "select name as tag,type,ann.dateModified from itemTags it join tags t on it.tagID=t.tagID join items ann on it.itemID=ann.itemID"
+    "select name as tag,type,ann.dateModified from itemTags it join tags t on it.tagID=t.tagID join items ann on it.itemID=ann.itemID",
   );
   if (!rows || rows.length < 1) return [];
   const lines: { tag: string; type: number; dateModified: string }[] = [];
@@ -348,13 +349,13 @@ export async function openAnnotation(itemOrKeyOrId: Zotero.Item | string | numbe
   let doc: Document | undefined = undefined;
   let pdfDoc: Document | undefined = undefined;
   const item = getItem(itemOrKeyOrId);
-
+  const pageIndex = parseInt(page, 10);
   if (!item) return;
   //@ts-ignore Zotero.FileHandlers.open
   await Zotero.FileHandlers.open(item, {
     location: {
       annotationID: annotationKey,
-      pageIndex: page,
+      pageIndex: pageIndex,
     },
   });
   if (!annotationKey) return;
@@ -382,7 +383,7 @@ export async function openAnnotation(itemOrKeyOrId: Zotero.Item | string | numbe
   }
 }
 
-export async function injectCSSToReader() { }
+export async function injectCSSToReader() {}
 
 export const memSVG = memoize(
   async (href: string) => await getFileContent(href),
@@ -418,11 +419,11 @@ export async function injectCSS(doc: Document | HTMLDivElement, filename: string
       ignoreIfExists: true,
     },
     doc.querySelector("linkset") ||
-    doc.querySelector("head") ||
-    doc.querySelector("body") ||
-    doc.querySelector("div") ||
-    doc.children[0] ||
-    doc,
+      doc.querySelector("head") ||
+      doc.querySelector("body") ||
+      doc.querySelector("div") ||
+      doc.children[0] ||
+      doc,
   );
   // ztoolkit.log("加载css", d);
 }
@@ -815,8 +816,13 @@ export function getPublicationTags(topItem: Zotero.Item | string | undefined) {
     return "";
   }
   if (topItem instanceof String) {
-    //@ts-ignore getField
-    topItem = { getField: () => { return topItem }, objectType: "item" };
+    topItem = {
+      //@ts-ignore getField
+      getField: () => {
+        return topItem;
+      },
+      objectType: "item",
+    };
   }
   if (topItem instanceof Zotero.Item) {
     while (topItem.parentItem) topItem = topItem.parentItem;

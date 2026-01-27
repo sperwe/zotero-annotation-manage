@@ -1,5 +1,5 @@
 import { config } from "../../package.json";
-import { TagElementProps } from "zotero-plugin-toolkit/dist/tools/ui";
+// import { TagElementProps } from "zotero-plugin-toolkit/dist/tools/ui";
 import { getPref, setPref } from "../utils/prefs";
 import { sortAsc, sortFixedTags10AscByKey, sortFixedTags10ValuesLength, sortKey, sortValuesLength } from "../utils/sort";
 import { uniqueBy } from "../utils/uniqueBy";
@@ -22,12 +22,13 @@ import { getSelectedItems, createActionTag } from "./menu";
 import { showTitle } from "./RelationHeader";
 import { groupBy } from "../utils/groupBy";
 import { getCiteItemHtmlWithPage, getCiteAnnotationHtml, getCiteItemHtml } from "./getCitationItem";
-import { ProgressWindowHelper } from "zotero-plugin-toolkit/dist/helpers/progressWindow";
+// import { ProgressWindowHelper } from "zotero-plugin-toolkit/dist/helpers/progressWindow";
 import { getString } from "../utils/locale";
 import { createRoot } from "react-dom/client";
 import { IntlProvider } from "react-intl";
 import * as React from "react";
 import { AnnotationMatrix, content2AnnotationMatrix } from "../component/AnnotationMatrix";
+import { ProgressWindowHelper, TagElementProps } from "zotero-plugin-toolkit";
 // import { groupBy } from "lodash";
 
 export function getAllAnnotations(items: Zotero.Item[]) {
@@ -223,7 +224,7 @@ export function createSearchAnnContent(dialogWindow: Window | undefined, popupDi
         listeners: [
           {
             type: "click",
-            listener: (e) => {
+            listener: (e: Event) => {
               e.stopPropagation();
               //预览批注导出的按钮
               exportNote({ filter: () => ans, toText: toText1 });
@@ -1259,11 +1260,9 @@ export async function exportNote({
     annotations = await filter(annotations);
   }
   if (annotations.length == 0) {
-    pw
-      ?.createLine({
-        text: `没有找到标记，不创建笔记。`,
-      })
-      .startCloseTimer(5e3);
+    pw?.createLine({
+      text: `没有找到标记，不创建笔记。`,
+    }).startCloseTimer(5e3);
     return;
   }
   const title = getTitleFromAnnotations(annotations);
@@ -1332,12 +1331,10 @@ export async function createNote(txt = "", pw: ProgressWindowHelper | undefined 
   await targetNoteItem.saveTx();
   const header = "";
   // const pw = new ztoolkit.ProgressWindow(header).createLine({ text: "执行中" }).show()
-  pw
-    ?.createLine({
-      text: "创建新笔记 ",
-      type: "default",
-    })
-    .startCloseTimer(5000);
+  pw?.createLine({
+    text: "创建新笔记 ",
+    type: "default",
+  }).startCloseTimer(5000);
   return targetNoteItem;
 }
 

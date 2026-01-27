@@ -1,3 +1,3 @@
-const ReactDOM = Zotero.getMainWindow().require('react-dom')
+const ReactDOM = Zotero.getMainWindow().require("react-dom");
 
-module.exports = ReactDOM
+module.exports = ReactDOM;

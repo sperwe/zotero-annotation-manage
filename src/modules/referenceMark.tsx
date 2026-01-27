@@ -151,7 +151,7 @@ async function changeFromText(text: string, panel: HTMLDivElement, item: Zotero.
       "在这里判断是否在我的文库当中，不在文库当中显示添加到文库按钮",
       m,
     );
-    if (m) {
+    if (m && m.groups) {
       //检测本地是否存在
       const searchedItem = await searchItem({
         doi: m.groups.doi,
@@ -172,14 +172,15 @@ async function changeFromText(text: string, panel: HTMLDivElement, item: Zotero.
             cursor: "pointer",
           },
         },
-        panel)
+        panel,
+      );
 
-      if (searchedItem || m.groups.journal) {
+      if (searchedItem || (m && m.groups && m.groups.journal)) {
         ztoolkit.UI.appendElement(
           {
             tag: "span",
             properties: {
-              innerHTML: getPublicationTags(searchedItem || m.groups.journal),
+              innerHTML: getPublicationTags(searchedItem || (m && m.groups && m.groups.journal)),
             },
             styles: {
               margin: "5px",
@@ -187,10 +188,10 @@ async function changeFromText(text: string, panel: HTMLDivElement, item: Zotero.
               cursor: "pointer",
             },
           },
-          panel)
+          panel,
+        );
       }
-      ztoolkit.log("参考文献查询", searchedItem, m.groups.journal)
-
+      ztoolkit.log("参考文献查询", searchedItem, m && m.groups && m.groups.journal);
 
       if (searchedItem?.key) {
         ztoolkit.UI.appendElement(

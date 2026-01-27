@@ -48,7 +48,7 @@ import {
 import "./tagStyle.css";
 import styles from "./tagStyle.css";
 // import { Popover } from '@radix-ui/react-popover';
-import FixedPopup from './FixedPopup';
+import FixedPopup from "./FixedPopup";
 // import { Popover, PopoverPosition, PopoverState } from 'react-tiny-popover';
 // import Sketch from '@uiw/react-color-sketch';
 // import { ColorPicker, useColor } from 'react-color-palette';
@@ -192,7 +192,9 @@ export function PopupRoot({
     },
   };
   const configItemStyle = { display: "inline-block", margin: "0 5px" };
-  const tabDiv = Zotero.getMainWindow().Zotero_Tabs.deck.querySelector("#" + Zotero.getMainWindow().Zotero_Tabs.selectedID) as HTMLDivElement;
+  const tabDiv = Zotero.getMainWindow().Zotero_Tabs.deck.querySelector(
+    "#" + Zotero.getMainWindow().Zotero_Tabs.selectedID,
+  ) as HTMLDivElement;
   const readerUiDiv = (tabDiv.querySelector("browser") as HTMLIFrameElement).contentDocument?.querySelector("#reader-ui") as HTMLDivElement;
   const primaryViewDiv = (tabDiv.querySelector(".reader") as HTMLIFrameElement)?.contentDocument?.querySelector(
     "#split-view #primary-view",
@@ -205,7 +207,7 @@ export function PopupRoot({
   const [lastScaleItem, setLastScaleItem] = useState<Zotero.Item | undefined>(getItem(lastScaleItemKey));
 
   if (isDebug()) boundaryElement.style.border = "1px solid red";
-  // setWindowType("FollowParent") //!Fix 目前改为只跟随窗口  
+  // setWindowType("FollowParent") //!Fix 目前改为只跟随窗口
 
   useEffect(() => {
     //加载当前item的标签
@@ -1154,7 +1156,8 @@ export function PopupRoot({
               }}
             >
               {ScaleActionTypeArray.map((a) => (
-                <button key={a}
+                <button
+                  key={a}
                   className="toolbar-button"
                   style={{ width: "unset", margin: " 0 2px", height: "auto" }}
                   onClick={() => {
@@ -1205,7 +1208,8 @@ export function PopupRoot({
                   }}
                 >
                   {ScaleItemActionTypeArray.map((a) => (
-                    <button key={a}
+                    <button
+                      key={a}
                       className="toolbar-button"
                       style={{ width: "unset", margin: " 0 2px", height: "auto" }}
                       onClick={() => {
@@ -1236,7 +1240,8 @@ export function PopupRoot({
               {["量表", "元"]
                 .filter((f) => annotations.some((s) => s.hasTag(f)))
                 .map((action) => (
-                  <button key={action}
+                  <button
+                    key={action}
                     className="toolbar-button"
                     style={{ width: "unset", margin: "2px" }}
                     onClick={() => {
@@ -1283,7 +1288,8 @@ export function PopupRoot({
                         .getAnnotations()
                         .filter((f) => f.hasTag("量表"))
                         .map((a) => (
-                          <button key={a.key}
+                          <button
+                            key={a.key}
                             className="toolbar-button"
                             style={{ width: "unset" }}
                             onClick={() => {
@@ -1313,7 +1319,8 @@ export function PopupRoot({
                         .getAnnotations()
                         .filter((f) => f.hasTag("量表item") && f.annotationComment.includes(`*${sScale}*`))
                         .map((a) => (
-                          <button key={a.key}
+                          <button
+                            key={a.key}
                             className="toolbar-button"
                             style={{ width: "unset" }}
                             onClick={() => {
@@ -1330,7 +1337,8 @@ export function PopupRoot({
                   {
                     //["item", "CR", "CA", "AVE", "factorLoading", "reference", "description"]//.filter(f => f != sScaleAction)
                     ScaleActionTypeArray.map((a) => (
-                      <button key={a}
+                      <button
+                        key={a}
                         className="toolbar-button"
                         style={{ width: "unset", margin: "2px" }}
                         onClick={() => {
@@ -1460,7 +1468,13 @@ export function PopupRoot({
                 </>
               )}
 
-              <FixedPopup defaultIsOpen={isShowConfig} openText={getString("popupRoot-setup")} top={'100px'} left={'100px'} width={''} height={''}
+              <FixedPopup
+                defaultIsOpen={isShowConfig}
+                openText={getString("popupRoot-setup")}
+                top={"100px"}
+                left={"100px"}
+                width={""}
+                height={""}
                 onOpenChanged={(isOpen) => {
                   setPref("showConfig", isOpen);
                   setShowConfig(isOpen);
@@ -1469,8 +1483,9 @@ export function PopupRoot({
                   ...tagStyle,
                   background: isShowConfig ? "#00990030" : "#99000030",
                 }}
-
-              >{handleConfigDiv()}</FixedPopup>
+              >
+                {handleConfigDiv()}
+              </FixedPopup>
               {/* {color.rgb}
               <ColorPicker color={color} onChange={setColor} /> */}
               {/* <div>
@@ -1655,20 +1670,20 @@ export function PopupRoot({
                       ctrlAddOrSaveTags(isAdd, cTag);
                       return false;
                     }}
-                  // onMouseDown={(e) => {
-                  //   e.preventDefault();
-                  //   ztoolkit.log("onMouseDown 复制", e)
-                  //   return false
-                  // }}
-                  // onContextMenu={e => {
-                  //   e.preventDefault();
-                  //   ztoolkit.log("onContextMenu 复制", tag.key)
-                  //   new window.Clipboard().readText().then((text) => {
-                  //     ztoolkit.log("onContextMenu 复制", tag.key, text);
-                  //     (e.currentTarget as HTMLInputElement).value = text;
-                  //   })
-                  //   return false
-                  // }}
+                    // onMouseDown={(e) => {
+                    //   e.preventDefault();
+                    //   ztoolkit.log("onMouseDown 复制", e)
+                    //   return false
+                    // }}
+                    // onContextMenu={e => {
+                    //   e.preventDefault();
+                    //   ztoolkit.log("onContextMenu 复制", tag.key)
+                    //   new window.Clipboard().readText().then((text) => {
+                    //     ztoolkit.log("onContextMenu 复制", tag.key, text);
+                    //     (e.currentTarget as HTMLInputElement).value = text;
+                    //   })
+                    //   return false
+                    // }}
                   >
                     <span>[{tag.values.length}]</span>
                     <span>{tag.key}</span>

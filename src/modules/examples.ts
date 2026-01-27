@@ -1,4 +1,5 @@
-import { Prompt } from "zotero-plugin-toolkit/dist/managers/prompt";
+// import { Prompt } from "zotero-plugin-toolkit/dist/managers/prompt";
+import { Prompt } from "zotero-plugin-toolkit";
 import { config } from "../../package.json";
 import { getString } from "../utils/locale";
 

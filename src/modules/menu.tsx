@@ -1,7 +1,7 @@
 import * as React from "react";
 import { createRoot } from "react-dom/client";
-import { MenuitemOptions } from "zotero-plugin-toolkit/dist/managers/menu";
-import { TagElementProps } from "zotero-plugin-toolkit/dist/tools/ui";
+// import { MenuitemOptions } from "zotero-plugin-toolkit/dist/managers/menu";
+// import { TagElementProps } from "zotero-plugin-toolkit/dist/tools/ui";
 import { config } from "../../package.json";
 // import { PickerColor } from "../component/PickerColor";
 import { groupBy } from "../utils/groupBy";
@@ -27,6 +27,7 @@ import { funcSplitTag, funcTranslateAnnotations } from "./menuTools";
 import { MyButton } from "./MyButton";
 import { getString } from "../utils/locale";
 import { waitFor, waitUtilAsync } from "../utils/wait";
+import { MenuitemOptions, TagElementProps } from "zotero-plugin-toolkit";
 
 const iconBaseUrl = `chrome://${config.addonRef}/content/icons/`;
 function register() {
@@ -700,24 +701,24 @@ export function createActionTag(
     // },
     action
       ? {
-        tag: "button",
-        namespace: "html",
-        properties: { textContent: "确定生成" },
-        // styles: {
-        //   padding: "6px",
-        //   background: "#f99",
-        //   margin: "1px",
-        // },
-        listeners: [
-          {
-            type: "click",
-            listener: (ev: any) => {
-              stopPropagation(ev);
-              action();
+          tag: "button",
+          namespace: "html",
+          properties: { textContent: "确定生成" },
+          // styles: {
+          //   padding: "6px",
+          //   background: "#f99",
+          //   margin: "1px",
+          // },
+          listeners: [
+            {
+              type: "click",
+              listener: (ev: any) => {
+                stopPropagation(ev);
+                action();
+              },
             },
-          },
-        ],
-      }
+          ],
+        }
       : { tag: "span" },
     ...others,
   ];

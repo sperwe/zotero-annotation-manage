@@ -61,16 +61,15 @@ export async function funcTranslateAnnotations(isCollectionOrItem: boolean | "co
     let r = "";
     if (an.item.getField("language")?.includes("en")) {
       //@ts-ignore Zotero.PDFTranslate
-      const translate = Zotero.PDFTranslate.api.translate
+      const translate = Zotero.PDFTranslate.api.translate;
 
-      const result =
-        (
-          await translate(text, {
-            langto: "zh",
-            itemID: an.item.id,
-            pluginID: config.addonID,
-          })
-        ).result as string;
+      const result = (
+        await translate(text, {
+          langto: "zh",
+          itemID: an.item.id,
+          pluginID: config.addonID,
+        })
+      ).result as string;
       r = "🔤" + result + "🔤";
     }
     if (!an.ann.annotationComment) {

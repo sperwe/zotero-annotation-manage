@@ -1,4 +1,4 @@
-import { TagElementProps } from "zotero-plugin-toolkit/dist/tools/ui";
+// import { TagElementProps } from "zotero-plugin-toolkit/dist/tools/ui";
 import { config } from "../../package.json";
 import { getPref, setPref } from "../utils/prefs";
 import {
@@ -34,6 +34,7 @@ import * as React from "react";
 import { PopupRoot } from "../component/PopupRoot";
 import { waitFor } from "../utils/wait";
 import { ScaleActionTypeArray, ScaleItemActionTypeArray } from "../component/Config";
+import { TagElementProps } from "zotero-plugin-toolkit";
 
 export class AnnotationPopup {
   reader?: _ZoteroTypes.ReaderInstance;
@@ -266,12 +267,10 @@ export class AnnotationPopup {
     ztoolkit.log("root和rr", root, rr);
     // if (isDebug())
 
-
     setTimeout(() => {
-
-      const window = Zotero.getMainWindow()
+      const window = Zotero.getMainWindow();
       //@ts-ignore window 类型问题
-      globalThis.window = window
+      globalThis.window = window;
       globalThis.document = window.document;
 
       createRoot(rr).render(
@@ -295,7 +294,6 @@ export class AnnotationPopup {
           />
         </IntlProvider>,
       );
-
     });
   }
 
@@ -1144,7 +1142,6 @@ export class AnnotationPopup {
   }
 
   private async saveAnnotationTags() {
-
     const selectedTags = [...this.selectedTags];
     const searchTag = this.searchTag;
     const delTags = [...this.delTags];
@@ -1247,7 +1244,7 @@ export async function saveAnnotationTags(
       } else {
         const color = selectedTags.map((a) => a.color).filter((f) => f)[0] || memFixedColor(tagsRequire[0], undefined);
         const tags = tagsRequire.map((a) => ({ name: a }));
-        Zotero.API.r_reader = reader
+        Zotero.API.r_reader = reader;
         //@ts-ignore 访问textSelectionAnnotationMode
         const _annotationType = reader?._state?.textSelectionAnnotationMode || "highlight";
         // 因为线程不一样，不能采用直接修改params.annotation的方式，所以直接采用新建的方式保存笔记

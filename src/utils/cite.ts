@@ -1,19 +1,19 @@
 import { getItem } from "./zzlb";
 
 interface Rule {
-  re: RegExp
+  re: RegExp;
   title?: string;
   rStr: string;
   examples?: string[];
 }
 const space = "[\\s\u00a0\u0020]*";
 const num = `(?:${space}\\[\\d+\\]${space})?`;
-const quote = `[“"”']`
+const quote = `[“"”']`;
 const quote_space = `${space}${quote}${space}`;
-const comma = `,`
-const comma_space = `${space}${comma}${space}`
-const dot = `\\.`
-const dot_space = `${space}${dot}${space}`
+const comma = `,`;
+const comma_space = `${space}${comma}${space}`;
+const dot = `\\.`;
+const dot_space = `${space}${dot}${space}`;
 
 const author0 = `${space}(?<author>.+)${space}`;
 const author_no_dot = `${space}(?<author>[^\\.]+?)${space}`;
@@ -42,7 +42,7 @@ const rules: Rule[] = [
     rStr: `${author0}${year_brackets}${dot}${title0}${dot}${journal0}${volume0}${series_brackets}${comma}${page0}${dot}${doi}`,
   },
   {
-    rStr: `${author0}${year_brackets}${dot_space}${title0}${dot_space}${journal0}${comma_space}(.*?)${doi}`
+    rStr: `${author0}${year_brackets}${dot_space}${title0}${dot_space}${journal0}${comma_space}(.*?)${doi}`,
     // re: /\s*(?<author>[^(]+)\(\s*(?<year>[\d]+)[a-f]?\s*\)\.\s*(?<title>.+?)\s*\.\s*(?<journal>.+?),\s*(?<volume>[\s\d]*)(?:\((?<series>[\s\d]+)\))?,\s*(?<page>[\s\d–-]+)\./,
   },
   {
@@ -50,7 +50,7 @@ const rules: Rule[] = [
     // re: /\s*(?<author>.+)\.\s*(?<title>.+?)\s*\.\s*(?<journal>.+?)\.\s*(?<volume>[\d]*)\s*(?:\((?<series>[\s\d]+)\))?,\s*(?<page>[\s\d–-]+),\s*(?<year>\d{4}[a-f]?)\./,
   },
   {
-    rStr: `${num}${author_no_dot}\\.${title0}\\.${space}(?:In Proc\\.)?${journal0}\\,${space}\\w*[\\.]?${space}${year0},${space}pp\\.${page0}\\.${doi}`
+    rStr: `${num}${author_no_dot}\\.${title0}\\.${space}(?:In Proc\\.)?${journal0}\\,${space}\\w*[\\.]?${space}${year0},${space}pp\\.${page0}\\.${doi}`,
   },
   {
     rStr: `${author_no_dot}${year_brackets}${title0}\\.${journal0}${volume0}:${page0}\\.${doi}`,
@@ -113,7 +113,7 @@ const rules: Rule[] = [
       "Lee, R.G. and Dale, B.G. (1998), “Business process management: a review and evaluation”, Business Process Management Journal, Vol. 4 No. 3, pp. 214-225, doi: 10.1108/14637159810224322.",
     ],
   },
-].map(a => Object.assign({}, a, { re: new RegExp(a.rStr), }))
+].map((a) => Object.assign({}, a, { re: new RegExp(a.rStr) }));
 // const o = {
 //   re: new RegExp(`${author0},${year_brackets},${space}${quote}${title1}${quote}${space},${journal2},`),
 //   examples: [
@@ -130,9 +130,9 @@ const rules: Rule[] = [
 
 export function ruleSearch(str: string) {
   if (__env__ === "development") {
-    const r = rules.map(a => Object.assign({}, a, { m: str.match(a.rStr) })).map(a => Object.assign(a, { groups: a.m?.groups }))
-    ztoolkit.log("cite 识别结果", str, r)
-    return Object.assign({}, r.filter(a => a.m)[0], { all: r })
+    const r = rules.map((a) => Object.assign({}, a, { m: str.match(a.rStr) })).map((a) => Object.assign(a, { groups: a.m?.groups }));
+    ztoolkit.log("cite 识别结果", str, r);
+    return Object.assign({}, r.filter((a) => a.m)[0], { all: r });
   }
   for (let index = 0; index < rules.length; index++) {
     const rule = rules[index];
@@ -212,7 +212,6 @@ if (__env__ === "development") {
   //@ts-ignore Zotero.ref_test
   // Zotero.ref_test = { refTest, ruleTestInner, ruleTestCross, ruleTestSingle, ruleTestLast };
 }
-
 
 export async function searchItem(info: { doi: string; title: string; year: string }) {
   if (!info) return;
