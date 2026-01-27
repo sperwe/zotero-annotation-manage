@@ -29,8 +29,6 @@ import { Relations } from "../utils/Relations";
 import { createRoot } from "react-dom/client";
 import { IntlProvider } from "react-intl";
 import * as React from "react";
-// import { usePopover } from "react-tiny-popover";
-// import { HexColorPicker } from "react-colorful";
 import { PopupRoot } from "../component/PopupRoot";
 import { waitFor } from "../utils/wait";
 import { ScaleActionTypeArray, ScaleItemActionTypeArray } from "../component/Config";
@@ -113,7 +111,6 @@ export class AnnotationPopup {
     }
     this.clearDiv();
     //
-
     // ztoolkit.UI.appendElement(
     //   {
     //     tag: "style",

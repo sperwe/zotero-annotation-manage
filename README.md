@@ -26,7 +26,8 @@
 ## 注意
 
 - 需要安装 [@windingwind](https://github.com/windingwind)的[BetterNotes](https://github.com/windingwind/zotero-better-notes/releases/) 才能使用导出功能。
-- 仅支持Zotero 7.0。
+- 支持Zotero 8.0。
+- node 版本 22.22.0
 
 ## 功能介绍
 
@@ -149,7 +150,7 @@ Nested Tags 的灵感来自 [Zotero-Style](https://github.com/MuiseDestiny/zoter
 ## Reminder
 
 - This plugin required @windingwind's [BetterNotes](https://github.com/windingwind/zotero-better-notes/releases/)
-- Only supports Zotero 7.0
+- upports Zotero 8.0
 
 ## Disclaimer
 
