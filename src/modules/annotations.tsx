@@ -270,6 +270,32 @@ function installSimpleTextReaderDoc(_win: Window, contentWin?: Window, doc?: Doc
       );
 
       if (popup.rootDiv) {
+        const closeButton = doc.createElement("button");
+        closeButton.type = "button";
+        closeButton.textContent = "×";
+        closeButton.title = "关闭";
+        closeButton.style.position = "sticky";
+        closeButton.style.top = "0";
+        closeButton.style.float = "right";
+        closeButton.style.zIndex = "1";
+        closeButton.style.width = "24px";
+        closeButton.style.height = "24px";
+        closeButton.style.margin = "2px";
+        closeButton.style.border = "1px solid #bbb";
+        closeButton.style.borderRadius = "12px";
+        closeButton.style.background = "#fff";
+        closeButton.style.cursor = "pointer";
+        closeButton.addEventListener(
+          "click",
+          (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            hidePopup();
+            txtLog("show:manual-close");
+          },
+          true,
+        );
+        popup.rootDiv.prepend(closeButton);
         popup.rootDiv.addEventListener(
           "mousedown",
           () => {
