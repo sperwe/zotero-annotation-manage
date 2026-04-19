@@ -28,6 +28,11 @@ function unescapeHtml(text: string): string {
     .replace(/&amp;/g, "&");
 }
 
+function formatCardTimestamp(date = new Date()): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}${pad(date.getHours())}${pad(date.getMinutes())}`;
+}
+
 export function parseTextAnnotationNote(noteItem: Zotero.Item, attachmentItem?: Zotero.Item) {
   if (!noteItem?.isNote?.()) return null;
   const note = noteItem.getNote?.() || "";
@@ -91,6 +96,7 @@ export async function createTextAnnotation(
     charEnd: position.charEnd,
     text: position.text,
   };
+  const createdAt = formatCardTimestamp();
   const meta = {
     marker: TXT_NOTE_MARKER,
     attachmentKey: attachmentItem.key,
@@ -101,6 +107,7 @@ export async function createTextAnnotation(
     position: annotationPosition,
     text: position.text,
     comment,
+    createdAt,
   };
   const tagNames = tags.map((tag) => tag.name);
   const sourceTitle = attachmentItem.getDisplayTitle?.() || "TXT";
@@ -123,7 +130,7 @@ export async function createTextAnnotation(
   note.parentID = attachmentItem.parentItemID || attachmentItem.id;
   note.setNote(
     `<div data-zam-txt-annotation="true" style="border-left:4px solid ${escapeHtml(color)};padding-left:12px;">` +
-      `<h2>卡片｜${escapeHtml(pageLabel)}</h2>` +
+      `<h2>${createdAt}｜卡片｜${escapeHtml(pageLabel)}｜</h2>` +
       `<!-- ZAM_TXT_ANNOTATION_META:${escapedMeta}:ZAM_TXT_ANNOTATION_META_END -->` +
       `<p><strong>核心摘录</strong></p>` +
       `<blockquote>${excerptHtml}</blockquote>` +
@@ -133,7 +140,7 @@ export async function createTextAnnotation(
       `<ul><li> </li></ul>` +
       `<p><strong>后续问题</strong></p>` +
       `<ul><li> </li></ul>` +
-      `<p><strong>来源</strong>：${escapeHtml(sourceTitle)}｜${escapeHtml(pageLabel)}｜字符 ${position.charStart}-${position.charEnd}</p>` +
+      `<p><strong>来源</strong>：${escapeHtml(sourceTitle)}｜${escapeHtml(pageLabel)}｜字符 ${position.charStart}-${position.charEnd}｜摘录时间 ${createdAt}</p>` +
       (tagNames.length ? `<p><strong>标签</strong>：${tagNames.map(escapeHtml).join("、")}</p>` : "") +
       `</div>`,
   );

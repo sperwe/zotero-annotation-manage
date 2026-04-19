@@ -107,6 +107,8 @@ function installSimpleTextReaderDoc(_win: Window, contentWin?: Window, doc?: Doc
 
   const item = Zotero.Items.get(itemID);
   if (!item?.isAttachment?.()) return;
+  const contentElement = doc.getElementById("content") as HTMLElement | null;
+  if (!contentElement) return;
 
   txtLog("install", { itemID, title: item.getDisplayTitle?.() });
   (contentWin as any).__zoteroAnnotationManageTxtBridgeInstalled = true;
@@ -115,6 +117,8 @@ function installSimpleTextReaderDoc(_win: Window, contentWin?: Window, doc?: Doc
   let timer: number | undefined;
   let interactingWithPopup = false;
   let restoringSelection = false;
+  let restoringHighlights = false;
+  let restoreHighlightsTimer: number | undefined;
   let lastTextPosition: ReturnType<typeof getTextPositionFromSelection> = null;
   let lastTextPositionAt = 0;
   let lastRange: Range | null = null;
@@ -169,16 +173,56 @@ function installSimpleTextReaderDoc(_win: Window, contentWin?: Window, doc?: Doc
     }
   };
 
-  const restoreSavedHighlights = () => {
+  const restoreSavedHighlights = (reason = "manual") => {
     const parentItem = item.parentItem;
     if (!parentItem) return;
+    restoringHighlights = true;
+    doc.querySelectorAll(".zam-txt-highlight-overlay").forEach((el) => el.remove());
+    let count = 0;
     Zotero.Items.get(parentItem.getNotes(false)).forEach((note) => {
       const meta = parseTextAnnotationNote(note, item);
       if (!meta) return;
       applyTxtHighlight(meta.position, meta.color, note.key);
+      count += 1;
     });
+    txtLog("highlight:restore", { reason, count });
+    contentWin.setTimeout(() => {
+      restoringHighlights = false;
+    }, 0);
   };
-  contentWin.setTimeout(restoreSavedHighlights, 300);
+  const scheduleRestoreSavedHighlights = (reason: string) => {
+    if (restoringHighlights) return;
+    if (restoreHighlightsTimer) contentWin.clearTimeout(restoreHighlightsTimer);
+    restoreHighlightsTimer = contentWin.setTimeout(() => {
+      restoreHighlightsTimer = undefined;
+      restoreSavedHighlights(reason);
+    }, 250);
+  };
+  contentWin.setTimeout(() => restoreSavedHighlights("install"), 300);
+  const highlightObserver = new contentWin.MutationObserver((mutations: MutationRecord[]) => {
+    if (restoringHighlights) return;
+    const changedNodes: Node[] = [];
+    mutations.forEach((mutation: MutationRecord) => {
+      Array.from(mutation.addedNodes).forEach((node) => {
+        if (node) changedNodes.push(node);
+      });
+      Array.from(mutation.removedNodes).forEach((node) => {
+        if (node) changedNodes.push(node);
+      });
+    });
+    if (
+      changedNodes.length > 0 &&
+      changedNodes.every(
+        (node: Node) => node instanceof contentWin.HTMLElement && (node as HTMLElement).classList.contains("zam-txt-highlight-overlay"),
+      )
+    ) {
+      return;
+    }
+    scheduleRestoreSavedHighlights("mutation");
+  });
+  highlightObserver.observe(contentElement, { childList: true, subtree: true, attributes: true });
+  highlightObserver.observe(doc.documentElement, { attributes: true, attributeFilter: ["class", "style"] });
+  if (doc.body) highlightObserver.observe(doc.body, { attributes: true, attributeFilter: ["class", "style"] });
 
   const restoreSelection = (reason: string) => {
     if (!lastRange) return;
@@ -331,7 +375,34 @@ function installSimpleTextReaderDoc(_win: Window, contentWin?: Window, doc?: Doc
     }
     const selection = doc.getSelection();
     if (popup) {
-      txtLog("selection:ignored-while-popup", { rangeCount: selection?.rangeCount, isCollapsed: selection?.isCollapsed });
+      const root = doc.getElementById(`${config.addonRef}-PopupDiv`);
+      const commonAncestor = selection?.rangeCount ? selection.getRangeAt(0).commonAncestorContainer : null;
+      if (
+        selection &&
+        selection.rangeCount > 0 &&
+        !selection.isCollapsed &&
+        !(commonAncestor && root?.contains(commonAncestor))
+      ) {
+        const textPosition = getTextPositionFromSelection(doc);
+        if (textPosition) {
+          lastTextPosition = textPosition;
+          lastTextPositionAt = Date.now();
+          lastRange = selection.getRangeAt(0).cloneRange();
+          if (popup.params?.annotation) {
+            popup.params.annotation.text = textPosition.text;
+            (popup.params.annotation as any).position = textPosition;
+            popup.params.annotation.pageLabel = `段落 ${textPosition.pageIndex + 1}`;
+          }
+          txtLog("selection:update-while-popup", {
+            len: textPosition.text.length,
+            pageIndex: textPosition.pageIndex,
+            charStart: textPosition.charStart,
+            charEnd: textPosition.charEnd,
+          });
+        }
+      } else {
+        txtLog("selection:ignored-while-popup", { rangeCount: selection?.rangeCount, isCollapsed: selection?.isCollapsed });
+      }
       return;
     }
     txtLog("selection", { hasPopup: !!popup, rangeCount: selection?.rangeCount, isCollapsed: selection?.isCollapsed });
@@ -346,6 +417,8 @@ function installSimpleTextReaderDoc(_win: Window, contentWin?: Window, doc?: Doc
   (contentWin as any).__zoteroAnnotationManageApplyHighlight = applyTxtHighlight;
   const cleanup = () => {
     doc.removeEventListener("selectionchange", onSelectionChange);
+    highlightObserver.disconnect();
+    if (restoreHighlightsTimer) contentWin.clearTimeout(restoreHighlightsTimer);
     excerptButtonStyle.remove();
     simpleTextReaderDocs.delete(doc);
     delete (contentWin as any).__zoteroAnnotationManageGetLastTextPosition;
