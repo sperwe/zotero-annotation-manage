@@ -550,18 +550,25 @@ export class AnnotationPopup {
     return rootStyle;
   }
   getAnnotationPositionLeft() {
+    if (this.reader && isSimpleTextReader(this.reader)) return 0;
     const page = this.getCurrentPageDiv();
     const rotation = page?.querySelector('.textLayer[data-main-rotation="90"],.textLayer[data-main-rotation="270"]') ? 1 : 0;
     const rects = this.params?.annotation?.position?.rects || [];
+    if (!rects.length) return 0;
     return Math.min(...rects.map((a) => a[0 + rotation]));
   }
   getAnnotationPositionRight() {
+    if (this.reader && isSimpleTextReader(this.reader)) return this.doc?.documentElement?.clientWidth || 888;
     const page = this.getCurrentPageDiv();
     const rotation = page?.querySelector('.textLayer[data-main-rotation="90"],.textLayer[data-main-rotation="270"]') ? 1 : 0;
     const rects = this.params?.annotation?.position?.rects || [];
+    if (!rects.length) return this.doc?.documentElement?.clientWidth || 888;
     return Math.max(...rects.map((a) => a[2 + rotation]));
   }
   getSelectTextMaxWidth() {
+    if (this.reader && isSimpleTextReader(this.reader)) {
+      return Math.max(320, Math.min(888, this.doc?.documentElement?.clientWidth || 888));
+    }
     const clientWidthWithSlider = this.getClientWidthWithSlider();
     const clientWidthWithoutSlider = this.getClientWidthWithoutSlider();
     const scaleFactor = this.getViewerScaleFactor();
@@ -580,7 +587,9 @@ export class AnnotationPopup {
     });
     const maxWidth = Math.min(centerX * 2, (clientWidthWithoutSlider - centerX) * 2, clientWidthWithoutSlider) - 50;
 
-    return maxWidth;
+    return Number.isFinite(maxWidth) && maxWidth > 0
+      ? maxWidth
+      : Math.max(320, Math.min(888, this.doc?.documentElement?.clientWidth || 888));
   }
 
   createCurrentTags(): TagElementProps {
@@ -1252,7 +1261,10 @@ export async function saveAnnotationTags(
           ztoolkit.log("[saveAnnotationTags] Creating TXT annotation");
 
           // 从 DOM Selection 计算文本位置
-          const textPos = getTextPositionFromSelection(doc);
+          const textPos =
+            (params.annotation?.position as any)?.type === "text"
+              ? (params.annotation?.position as any)
+              : getTextPositionFromSelection(doc);
           if (!textPos) {
             ztoolkit.log("[saveAnnotationTags] No valid text selection found for TXT");
             return false;
@@ -1263,14 +1275,14 @@ export async function saveAnnotationTags(
           try {
             // 创建 TXT 标注
             const newAnnItem = await createTextAnnotation(
-              item,  // TXT 附件 item
+              item, // TXT 附件 item
               textPos,
               {
-                type: annotationType || 'highlight',
+                type: annotationType || "highlight",
                 color,
                 tags,
                 comment,
-              }
+              },
             );
 
             if (newAnnItem) {

@@ -346,7 +346,9 @@ export function PopupRoot({
         }
       }
     });
-    observer.observe(readerUiDiv, { childList: true, subtree: true });
+    if (readerUiDiv) {
+      observer.observe(readerUiDiv, { childList: true, subtree: true });
+    }
     return () => {
       observer.disconnect();
     };

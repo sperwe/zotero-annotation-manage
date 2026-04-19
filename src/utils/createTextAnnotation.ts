@@ -5,18 +5,16 @@
  * This bypasses the PDF-specific _annotationManager for TXT files.
  */
 
-import { TextAnnotationPosition, CreateTextAnnotationOptions } from '../types/textAnnotation';
-import { waitFor } from './wait';
+import { TextAnnotationPosition, CreateTextAnnotationOptions } from "../types/textAnnotation";
 
 /**
  * Generate a unique annotation key
  */
 function generateAnnotationKey(): string {
   // Zotero.DataObjectUtilities.generateKey is the standard way
-  const key = (Zotero as any).DataObjectUtilities?.generateKey?.() ||
-    `XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX`.replace(/X/g, () =>
-      Math.floor(Math.random() * 16).toString(16)
-    );
+  const key =
+    (Zotero as any).DataObjectUtilities?.generateKey?.() ||
+    `XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX`.replace(/X/g, () => Math.floor(Math.random() * 16).toString(16));
   return key;
 }
 
@@ -31,71 +29,39 @@ function generateAnnotationKey(): string {
 export async function createTextAnnotation(
   attachmentItem: Zotero.Item,
   position: TextAnnotationPosition,
-  options: CreateTextAnnotationOptions = {}
+  options: CreateTextAnnotationOptions = {},
 ): Promise<Zotero.Item> {
-  const {
-    type = 'highlight',
-    color = '#ffd400',
-    tags = [],
-    comment = '',
-  } = options;
+  const { type = "highlight", color = "#ffd400", tags = [], comment = "" } = options;
 
-  ztoolkit.log('[createTextAnnotation] Creating TXT annotation:', {
+  ztoolkit.log("[createTextAnnotation] Creating TXT annotation:", {
     attachmentItem: attachmentItem.id,
     position,
     options,
   });
 
-  // Generate unique key
   const key = generateAnnotationKey();
+  const pageLabel = `段落 ${position.pageIndex + 1}`;
 
-  // Create annotation item
-  const annotation = new Zotero.Item('annotation');
-
-  // Set the key
-  annotation.setField('key', key);
-
-  // Set parent item (the TXT attachment)
-  annotation.parentItemID = attachmentItem.id;
-
-  // Set annotation text (the selected content)
-  annotation.annotationText = position.text;
-
-  // Set comment
-  annotation.annotationComment = comment;
-
-  // Set color
-  annotation.annotationColor = color;
-
-  // Set type: 0=highlight, 1=note, 2=underline, etc.
-  const typeMap: Record<string, number> = {
-    highlight: 0,
-    underline: 2,
-    note: 1,
-  };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (annotation as any).annotationType = typeMap[type] ?? 0;
-
-  // Set position as JSON
-  annotation.annotationPosition = JSON.stringify({
-    text: {
-      type: 'text',
+  const annotation = await Zotero.Annotations.saveFromJSON(attachmentItem, {
+    key,
+    type,
+    text: position.text,
+    comment,
+    color,
+    pageLabel,
+    sortIndex: String(position.charStart).padStart(10, "0"),
+    position: {
+      type: "text",
       pageIndex: position.pageIndex,
       charStart: position.charStart,
       charEnd: position.charEnd,
       text: position.text,
     },
-  });
-
-  // Add tags
-  for (const tag of tags) {
-    annotation.addTag(tag.name, 0);
-  }
-
-  // Save to database
+    tags,
+  } as unknown as _ZoteroTypes.Annotations.AnnotationJson);
   await annotation.saveTx();
 
-  ztoolkit.log('[createTextAnnotation] Annotation created:', {
+  ztoolkit.log("[createTextAnnotation] Annotation created:", {
     key: annotation.key,
     id: annotation.id,
     type: annotation.annotationType,
@@ -114,7 +80,7 @@ export async function updateTextAnnotation(
     color?: string;
     tags?: Array<{ name: string }>;
     comment?: string;
-  }
+  },
 ): Promise<Zotero.Item> {
   if (updates.color !== undefined) {
     annotationItem.annotationColor = updates.color;
@@ -152,9 +118,7 @@ export async function deleteTextAnnotation(annotationItem: Zotero.Item): Promise
  * Get all TXT annotations for an attachment
  */
 export function getTextAnnotations(attachmentItem: Zotero.Item): Zotero.Item[] {
-  return attachmentItem
-    .getAnnotations()
-    .filter((ann) => isTextAnnotation(ann));
+  return attachmentItem.getAnnotations().filter((ann) => isTextAnnotation(ann));
 }
 
 /**
@@ -166,13 +130,22 @@ export function parseTextPosition(annotationItem: Zotero.Item): TextAnnotationPo
 
   try {
     const pos = JSON.parse(posStr);
-    if (pos?.text?.type === 'text') {
+    if (pos?.text?.type === "text") {
       return {
-        type: 'text',
+        type: "text",
         pageIndex: pos.text.pageIndex,
         charStart: pos.text.charStart,
         charEnd: pos.text.charEnd,
-        text: pos.text.text || annotationItem.annotationText || '',
+        text: pos.text.text || annotationItem.annotationText || "",
+      };
+    }
+    if (pos?.type === "text") {
+      return {
+        type: "text",
+        pageIndex: pos.pageIndex,
+        charStart: pos.charStart,
+        charEnd: pos.charEnd,
+        text: pos.text || annotationItem.annotationText || "",
       };
     }
   } catch {
@@ -190,7 +163,7 @@ export function isTextAnnotation(annotationItem: Zotero.Item): boolean {
 
   try {
     const pos = JSON.parse(posStr);
-    return pos?.text?.type === 'text';
+    return pos?.text?.type === "text" || pos?.type === "text";
   } catch {
     return false;
   }

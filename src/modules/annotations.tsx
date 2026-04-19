@@ -6,7 +6,13 @@ import { groupBy } from "../utils/groupBy";
 import { AnnotationPopup } from "./AnnotationPopup";
 import { Relations } from "../utils/Relations";
 import { isSupportedReader, isSimpleTextReader } from "../utils/readerType";
+import { getTextPositionFromSelection } from "../utils/textPosition";
 // import { text2Ma } from "./readerTools";
+
+const simpleTextReaderCleanups: Array<() => void> = [];
+const simpleTextReaderDocs = new WeakSet<Document>();
+const simpleTextReaderBrowsers = new WeakSet<Element>();
+
 function register() {
   // if (!getPref("enable")) return;
   // ztoolkit.UI.basicOptions.log.disableZLog = true;
@@ -21,11 +27,162 @@ function register() {
   {
     Zotero.Reader.registerEventListener("createAnnotationContextMenu", createAnnotationContextMenu, config.addonID);
   }
+
+  registerSimpleTextReaderBridge();
 }
 function unregister() {
   ztoolkit.log("Annotations unregister");
   Zotero.Reader.unregisterEventListener("renderTextSelectionPopup", renderTextSelectionPopup);
   Zotero.Reader.unregisterEventListener("createAnnotationContextMenu", createAnnotationContextMenu);
+  while (simpleTextReaderCleanups.length) {
+    simpleTextReaderCleanups.pop()?.();
+  }
+}
+
+function registerSimpleTextReaderBridge() {
+  for (const win of Zotero.getMainWindows()) {
+    const tabs = (win as any).Zotero_Tabs;
+    const deck = tabs?.deck as Element | undefined;
+    if (!deck) continue;
+
+    const discover = () => installSimpleTextReaderDocs(win);
+    discover();
+
+    const observer = new win.MutationObserver(discover);
+    observer.observe(deck, { childList: true, subtree: true });
+    simpleTextReaderCleanups.push(() => observer.disconnect());
+  }
+}
+
+function installSimpleTextReaderDocs(win: Window) {
+  const deck = (win as any).Zotero_Tabs?.deck as Element | undefined;
+  if (!deck) return;
+
+  deck.querySelectorAll("browser").forEach((browser) => {
+    if (!simpleTextReaderBrowsers.has(browser)) {
+      simpleTextReaderBrowsers.add(browser);
+      const onLoad = () => installSimpleTextReaderDocs(win);
+      browser.addEventListener("load", onLoad, true);
+      simpleTextReaderCleanups.push(() => browser.removeEventListener("load", onLoad, true));
+    }
+
+    const shellDoc = (browser as any).contentDocument as Document | undefined;
+    const shellWin = (browser as any).contentWindow as Window | undefined;
+    installSimpleTextReaderDoc(win, shellWin, shellDoc);
+
+    const innerBrowser = shellDoc?.getElementById("reader-browser");
+    if (innerBrowser && !simpleTextReaderBrowsers.has(innerBrowser)) {
+      simpleTextReaderBrowsers.add(innerBrowser);
+      const onInnerLoad = () => installSimpleTextReaderDocs(win);
+      innerBrowser.addEventListener("load", onInnerLoad, true);
+      simpleTextReaderCleanups.push(() => innerBrowser.removeEventListener("load", onInnerLoad, true));
+    }
+    installSimpleTextReaderDoc(
+      win,
+      (innerBrowser as any)?.contentWindow as Window | undefined,
+      (innerBrowser as any)?.contentDocument as Document | undefined,
+    );
+  });
+}
+
+function installSimpleTextReaderDoc(_win: Window, contentWin?: Window, doc?: Document) {
+  if (!contentWin || !doc || simpleTextReaderDocs.has(doc) || !doc.getElementById("content")) return;
+
+  const bookData = (contentWin as any)._str_bookData || (contentWin.parent as any)?._str_bookData;
+  const itemID = Number(bookData?.itemID);
+  if (!itemID || !Zotero.Items.exists(itemID)) return;
+
+  const item = Zotero.Items.get(itemID);
+  if (!item?.isAttachment?.()) return;
+
+  simpleTextReaderDocs.add(doc);
+  let popup: AnnotationPopup | undefined;
+  let timer: number | undefined;
+  let interactingWithPopup = false;
+
+  const hidePopup = () => {
+    popup?.rootDiv?.remove();
+    popup = undefined;
+  };
+
+  const showPopup = () => {
+    const selection = doc.getSelection();
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+      hidePopup();
+      return;
+    }
+
+    const root = doc.getElementById(`${config.addonRef}-PopupDiv`);
+    const commonAncestor = selection.getRangeAt(0).commonAncestorContainer;
+    if (root?.contains(commonAncestor)) return;
+
+    const textPosition = getTextPositionFromSelection(doc);
+    if (!textPosition) {
+      hidePopup();
+      return;
+    }
+
+    const rect = selection.getRangeAt(0).getBoundingClientRect();
+    const left = Math.max(12, Math.min(rect.left, doc.documentElement.clientWidth - 340));
+    const top = Math.max(12, rect.bottom + 8);
+    const reader = {
+      itemID: item.id,
+      _item: item,
+      _iframeWindow: contentWin,
+      _window: contentWin,
+      _state: { textSelectionAnnotationMode: "highlight" },
+      _primaryView: { _onSetSelectionPopup: hidePopup },
+    } as unknown as _ZoteroTypes.ReaderInstance;
+
+    hidePopup();
+    popup = new AnnotationPopup(
+      reader,
+      {
+        annotation: {
+          text: textPosition.text,
+          type: "highlight",
+          color: "#ffd400",
+          pageLabel: `段落 ${textPosition.pageIndex + 1}`,
+          position: textPosition,
+        } as unknown as _ZoteroTypes.Annotations.AnnotationJson,
+      },
+      item,
+      doc,
+    );
+
+    if (popup.rootDiv) {
+      popup.rootDiv.addEventListener(
+        "mousedown",
+        () => {
+          interactingWithPopup = true;
+          contentWin.setTimeout(() => {
+            interactingWithPopup = false;
+          }, 300);
+        },
+        true,
+      );
+      popup.rootDiv.style.position = "fixed";
+      popup.rootDiv.style.left = `${left}px`;
+      popup.rootDiv.style.top = `${top}px`;
+      popup.rootDiv.style.zIndex = "99990";
+      popup.rootDiv.style.maxWidth = "888px";
+      popup.rootDiv.style.maxHeight = "320px";
+      popup.rootDiv.style.overflowY = "auto";
+      doc.body.appendChild(popup.rootDiv);
+    }
+  };
+
+  const onSelectionChange = () => {
+    if (interactingWithPopup) return;
+    if (timer) contentWin.clearTimeout(timer);
+    timer = contentWin.setTimeout(showPopup, 150);
+  };
+
+  doc.addEventListener("selectionchange", onSelectionChange);
+  simpleTextReaderCleanups.push(() => {
+    doc.removeEventListener("selectionchange", onSelectionChange);
+    hidePopup();
+  });
 }
 
 function renderTextSelectionPopup(event: _ZoteroTypes.Reader.EventParams<"renderTextSelectionPopup">) {

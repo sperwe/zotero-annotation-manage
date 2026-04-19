@@ -5,13 +5,13 @@
  * This is needed because TXT files don't have PDF-style rect coordinates.
  */
 
-import { TextAnnotationPosition } from '../types/textAnnotation';
+import { TextAnnotationPosition } from "../types/textAnnotation";
 
 /**
  * Get the #content element from SimpleTextReader
  */
 function getContentElement(doc: Document): Element | null {
-  return doc.getElementById('content');
+  return doc.getElementById("content");
 }
 
 /**
@@ -19,18 +19,16 @@ function getContentElement(doc: Document): Element | null {
  */
 function getParagraphs(doc: Document): NodeListOf<Element> | null {
   const content = getContentElement(doc);
-  return content?.querySelectorAll('p[data-page-index]') || null;
+  return content?.querySelectorAll('[data-page-index], [data-line], [id^="line"], p, h1, h2, h3, h4, h5, h6') || null;
 }
 
 /**
  * Calculate character offset from container start to a node within it
  */
 function getCharacterOffset(container: Element, targetNode: Node, offset: number): number {
-  const walker = document.createTreeWalker(
-    container,
-    NodeFilter.SHOW_TEXT,
-    null
-  );
+  const doc = container.ownerDocument;
+  const nodeFilter = doc.defaultView?.NodeFilter || NodeFilter;
+  const walker = doc.createTreeWalker(container, nodeFilter.SHOW_TEXT, null);
 
   let charOffset = 0;
   let currentNode: Node | null = walker.nextNode();
@@ -39,7 +37,7 @@ function getCharacterOffset(container: Element, targetNode: Node, offset: number
     if (currentNode === targetNode) {
       return charOffset + offset;
     }
-    charOffset += (currentNode.textContent || '').length;
+    charOffset += (currentNode.textContent || "").length;
     currentNode = walker.nextNode();
   }
 
@@ -50,11 +48,13 @@ function getCharacterOffset(container: Element, targetNode: Node, offset: number
  * Calculate the paragraph index for a node
  */
 function getParagraphIndex(container: Element, targetNode: Node): number {
-  const paragraphs = container.querySelectorAll('p[data-page-index]');
+  const paragraphs = container.querySelectorAll('[data-page-index], [data-line], [id^="line"], p, h1, h2, h3, h4, h5, h6');
 
   for (let i = 0; i < paragraphs.length; i++) {
     if (paragraphs[i].contains(targetNode)) {
-      return parseInt((paragraphs[i] as HTMLElement).dataset.pageIndex || '0', 10);
+      const element = paragraphs[i] as HTMLElement;
+      const value = element.dataset.pageIndex || element.dataset.line || (element.id?.match(/^line(\d+)$/)?.[1] ?? "");
+      return value ? parseInt(value, 10) : i;
     }
   }
 
@@ -78,26 +78,26 @@ export function getTextPositionFromSelection(doc: Document): TextAnnotationPosit
   const selection = doc.getSelection();
 
   if (!selection || selection.rangeCount === 0) {
-    ztoolkit.log('[textPosition] No selection found');
+    ztoolkit.log("[textPosition] No selection found");
     return null;
   }
 
   if (selection.isCollapsed) {
-    ztoolkit.log('[textPosition] Selection is collapsed (empty)');
+    ztoolkit.log("[textPosition] Selection is collapsed (empty)");
     return null;
   }
 
   const range = selection.getRangeAt(0);
-  const text = selection.toString().trim();
+  const text = selection.toString();
 
-  if (!text) {
-    ztoolkit.log('[textPosition] Selected text is empty');
+  if (!text.trim()) {
+    ztoolkit.log("[textPosition] Selected text is empty");
     return null;
   }
 
   const content = getContentElement(doc);
   if (!content) {
-    ztoolkit.log('[textPosition] #content element not found');
+    ztoolkit.log("[textPosition] #content element not found");
     return null;
   }
 
@@ -116,14 +116,14 @@ export function getTextPositionFromSelection(doc: Document): TextAnnotationPosit
   const charEnd = getCharacterOffset(content, endContainer, endOffset);
 
   const position: TextAnnotationPosition = {
-    type: 'text',
+    type: "text",
     pageIndex: startPageIndex,
     charStart,
     charEnd,
     text,
   };
 
-  ztoolkit.log('[textPosition] Calculated position:', {
+  ztoolkit.log("[textPosition] Calculated position:", {
     pageIndex: position.pageIndex,
     charStart: position.charStart,
     charEnd: position.charEnd,
@@ -151,7 +151,7 @@ export function getParagraphAtCharOffset(doc: Document, charOffset: number): Ele
     const p = paragraphs[i];
     if (!p) continue;
 
-    const pText = p.textContent || '';
+    const pText = p.textContent || "";
     const pLength = pText.length;
 
     if (charOffset < currentOffset + pLength) {
@@ -169,7 +169,7 @@ export function getParagraphAtCharOffset(doc: Document, charOffset: number): Ele
  */
 export function getFullTextContent(doc: Document): string {
   const content = getContentElement(doc);
-  return content?.textContent || '';
+  return content?.textContent || "";
 }
 
 /**
@@ -179,19 +179,16 @@ export function getFullTextContent(doc: Document): string {
  * @param position - The text position to highlight
  * @returns The highlighted range or null
  */
-export function highlightTextPosition(
-  doc: Document,
-  position: TextAnnotationPosition
-): Range | null {
+export function highlightTextPosition(doc: Document, position: TextAnnotationPosition): Range | null {
   const content = getContentElement(doc);
   if (!content) return null;
 
-  const textContent = content.textContent || '';
+  const textContent = content.textContent || "";
   const startNodeAndOffset = findNodeAtOffset(content, position.charStart);
   const endNodeAndOffset = findNodeAtOffset(content, position.charEnd);
 
   if (!startNodeAndOffset || !endNodeAndOffset) {
-    ztoolkit.log('[textPosition] Could not find nodes at offsets');
+    ztoolkit.log("[textPosition] Could not find nodes at offsets");
     return null;
   }
 
@@ -200,15 +197,15 @@ export function highlightTextPosition(
   range.setEnd(endNodeAndOffset.node, endNodeAndOffset.offset);
 
   // Create highlight element
-  const mark = doc.createElement('mark');
-  mark.style.backgroundColor = '#ffd400';
-  mark.style.color = '#000';
+  const mark = doc.createElement("mark");
+  mark.style.backgroundColor = "#ffd400";
+  mark.style.color = "#000";
 
   try {
     range.surroundContents(mark);
   } catch (e) {
     // If surroundContents fails (e.g., partially selected nodes), use extractContents
-    ztoolkit.log('[textPosition] surroundContents failed, using alternative method');
+    ztoolkit.log("[textPosition] surroundContents failed, using alternative method");
     return null;
   }
 
@@ -218,21 +215,16 @@ export function highlightTextPosition(
 /**
  * Find the text node and offset at a given character offset
  */
-function findNodeAtOffset(
-  container: Element,
-  charOffset: number
-): { node: Text; offset: number } | null {
-  const walker = document.createTreeWalker(
-    container,
-    NodeFilter.SHOW_TEXT,
-    null
-  );
+function findNodeAtOffset(container: Element, charOffset: number): { node: Text; offset: number } | null {
+  const doc = container.ownerDocument;
+  const nodeFilter = doc.defaultView?.NodeFilter || NodeFilter;
+  const walker = doc.createTreeWalker(container, nodeFilter.SHOW_TEXT, null);
 
   let currentOffset = 0;
   let node: Node | null = walker.nextNode();
 
   while (node) {
-    const nodeLength = (node.textContent || '').length;
+    const nodeLength = (node.textContent || "").length;
     if (currentOffset + nodeLength >= charOffset) {
       return {
         node: node as Text,

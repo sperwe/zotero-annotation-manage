@@ -36,8 +36,10 @@ import { ProgressWindowHelper, TagElementProps } from "zotero-plugin-toolkit";
  */
 function isTxtAttachment(item: Zotero.Item): boolean {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const mimeType = (item as any).attachmentMIMEType;
-  return mimeType === 'text/plain';
+  const mimeType = (((item as any).attachmentMIMEType || (item as any).attachmentContentType || "") as string).toLowerCase();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const attachmentPath = ((item as any).attachmentPath || "") as string;
+  return mimeType === "text/plain" || /\.txt$/i.test(attachmentPath);
 }
 
 /**
@@ -49,6 +51,9 @@ function parseTxtPosition(annotationPosition: string | undefined): { pageIndex: 
     const pos = JSON.parse(annotationPosition);
     if (pos?.text?.pageIndex !== undefined) {
       return { pageIndex: pos.text.pageIndex };
+    }
+    if (pos?.type === "text" && pos.pageIndex !== undefined) {
+      return { pageIndex: pos.pageIndex };
     }
   } catch {
     // Not a valid JSON or not a TXT position
@@ -81,56 +86,58 @@ export function getAllAnnotations(items: Zotero.Item[]) {
       const year = item.getField("year");
       const title = item.getField("title");
       // ztoolkit.log(555, item);
-      return Zotero.Items.get(item.getAttachments(false))
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .filter((f: any) => f.isPDFAttachment() || isTxtAttachment(f))
-        .flatMap((attachment) => {
-          // ztoolkit.log(666, pdf);
-          const attachmentTitle = attachment.getDisplayTitle();
-          // For TXT, use "段落" instead of "page"
-          const isTxt = isTxtAttachment(attachment);
-          return attachment.getAnnotations().flatMap((ann) => {
-            const text = ann.annotationText || "";
-            const comment = ann.annotationComment || "";
-            const color = ann.annotationColor;
-            const type = ann.annotationType;
-            const tags = ann.getTags();
-            const annotationTags = tags.map((a) => a.tag).join("  ");
-            // For TXT, use paragraph index from annotationPosition
-            let page = ann.annotationPageLabel;
-            if (!page && isTxt) {
-              const txtPos = parseTxtPosition(ann.annotationPosition);
-              if (txtPos) {
-                page = `段落 ${txtPos.pageIndex + 1}`;
+      return (
+        Zotero.Items.get(item.getAttachments(false))
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          .filter((f: any) => f.isPDFAttachment() || isTxtAttachment(f))
+          .flatMap((attachment) => {
+            // ztoolkit.log(666, pdf);
+            const attachmentTitle = attachment.getDisplayTitle();
+            // For TXT, use "段落" instead of "page"
+            const isTxt = isTxtAttachment(attachment);
+            return attachment.getAnnotations().flatMap((ann) => {
+              const text = ann.annotationText || "";
+              const comment = ann.annotationComment || "";
+              const color = ann.annotationColor;
+              const type = ann.annotationType;
+              const tags = ann.getTags();
+              const annotationTags = tags.map((a) => a.tag).join("  ");
+              // For TXT, use paragraph index from annotationPosition
+              let page = ann.annotationPageLabel;
+              if (!page && isTxt) {
+                const txtPos = parseTxtPosition(ann.annotationPosition);
+                if (txtPos) {
+                  page = `段落 ${txtPos.pageIndex + 1}`;
+                }
               }
-            }
-            const dateModified = ann.dateModified;
-            const o = {
-              item,
-              pdf: attachment,
-              ann,
-              author,
-              year,
-              title,
-              pdfTitle: attachmentTitle,
-              text,
-              color,
-              type,
-              comment,
-              itemTags,
-              page,
-              dateModified,
-              tag: {
-                tag: "在filter使用flatMap之后才能用。例如：filter:(ans)=>ans.flatMap(an=>an.tags.map(tag=>Object.assign({},an,{tag})))",
-                type: 0,
-              },
-              tags,
-              annotationTags,
-              html: "<span color='red'>等待转换：请调用convertHtml方法</span>",
-            } as AnnotationRes;
-            return o;
-          });
-        });
+              const dateModified = ann.dateModified;
+              const o = {
+                item,
+                pdf: attachment,
+                ann,
+                author,
+                year,
+                title,
+                pdfTitle: attachmentTitle,
+                text,
+                color,
+                type,
+                comment,
+                itemTags,
+                page,
+                dateModified,
+                tag: {
+                  tag: "在filter使用flatMap之后才能用。例如：filter:(ans)=>ans.flatMap(an=>an.tags.map(tag=>Object.assign({},an,{tag})))",
+                  type: 0,
+                },
+                tags,
+                annotationTags,
+                html: "<span color='red'>等待转换：请调用convertHtml方法</span>",
+              } as AnnotationRes;
+              return o;
+            });
+          })
+      );
     });
   return data;
 }
