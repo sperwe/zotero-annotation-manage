@@ -37,7 +37,7 @@ import { TagElementProps } from "zotero-plugin-toolkit";
 import { getReaderType, isSimpleTextReader } from "../utils/readerType";
 import { getTextPositionFromSelection } from "../utils/textPosition";
 import { createTextAnnotation } from "../utils/createTextAnnotation";
-import { createEpubAnnotationCard } from "../utils/createReaderAnnotationCard";
+import { createReaderAnnotationCard } from "../utils/createReaderAnnotationCard";
 import { txtLog, txtLogError } from "../utils/txtLog";
 
 export class AnnotationPopup {
@@ -1361,12 +1361,13 @@ export async function saveAnnotationTags(
 
         if (newAnnItem) {
           ztoolkit.log("创建了一个新批注", newAnn, newAnnItem);
-          if (getReaderType(reader) === "epub") {
+          const readerType = getReaderType(reader);
+          if (readerType === "epub" || readerType === "pdf" || readerType === "snapshot") {
             try {
-              const cardNote = await createEpubAnnotationCard(newAnnItem, comment);
-              ztoolkit.log("[saveAnnotationTags] EPUB card note created", cardNote?.key);
+              const cardNote = await createReaderAnnotationCard(newAnnItem, readerType, comment);
+              ztoolkit.log("[saveAnnotationTags] reader card note created", readerType, cardNote?.key);
             } catch (e) {
-              ztoolkit.log("[saveAnnotationTags] EPUB card note creation failed", e);
+              ztoolkit.log("[saveAnnotationTags] reader card note creation failed", readerType, e);
             }
           }
           const lastScaleKey = getPref("lastScaleKey") as string;
