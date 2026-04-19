@@ -49,16 +49,66 @@ function extractCoreExcerptFromNote(note: string): string {
   return blockquote ? htmlToText(blockquote) : "";
 }
 
+function parseVisibleTextAnnotationMeta(note: string, noteItem: Zotero.Item) {
+  const text = htmlToText(note);
+  const attachmentKey = note.match(/zotero:\/\/select\/library\/items\/([A-Z0-9]+)#zam-txt-return=/)?.[1] || "";
+  const pageLabel = text.match(/来源：.*?｜(.*?)｜字符/)?.[1] || "TXT";
+  const range = text.match(/字符\s*(\d+)-(\d+)/);
+  const createdAt = text.match(/摘录时间\s*(\d{12})/)?.[1] || "";
+  const coreExcerpt = extractCoreExcerptFromNote(note);
+  if (!attachmentKey || !range || !coreExcerpt) return null;
+  const charStart = Number(range[1]);
+  const charEnd = Number(range[2]);
+  const attachment = getItemSafe(attachmentKey);
+  const position = {
+    type: "text" as const,
+    pageIndex: Math.max(0, Number(pageLabel.match(/\d+/)?.[0] || 1) - 1),
+    charStart,
+    charEnd,
+    text: coreExcerpt,
+    anchor: { exact: coreExcerpt, prefix: "", suffix: "" },
+  };
+  return {
+    marker: TXT_NOTE_MARKER,
+    attachmentKey,
+    attachmentID: attachment?.id || 0,
+    type: "highlight" as const,
+    color: note.match(/border-left:\s*4px solid\s*(#[0-9a-fA-F]{6})/)?.[1] || "#ffd400",
+    pageLabel,
+    position,
+    text: coreExcerpt,
+    comment: "",
+    createdAt,
+    noteKey: noteItem.key,
+  };
+}
+
+function getItemSafe(key: string) {
+  try {
+    return Zotero.Items.getByLibraryAndKey(Zotero.Libraries.userLibraryID, key) as Zotero.Item;
+  } catch {
+    return undefined;
+  }
+}
+
 export function parseTextAnnotationNote(noteItem: Zotero.Item, attachmentItem?: Zotero.Item) {
   if (!noteItem?.isNote?.()) return null;
   const note = noteItem.getNote?.() || "";
-  if (!note.includes(TXT_NOTE_MARKER)) return null;
+  const visibleMeta = parseVisibleTextAnnotationMeta(note, noteItem);
+  if (!note.includes(TXT_NOTE_MARKER)) {
+    if (visibleMeta && (!attachmentItem || visibleMeta.attachmentKey === attachmentItem.key)) return visibleMeta;
+    return null;
+  }
   const match =
     note.match(/<!--\s*ZAM_TXT_ANNOTATION_META:([\s\S]*?):ZAM_TXT_ANNOTATION_META_END\s*-->/) ||
+    note.match(/data-zam-txt-annotation-meta=["']([^"']+)["']/) ||
     note.match(/<pre[^>]*>\s*ZAM_TXT_ANNOTATION_META:([\s\S]*?):ZAM_TXT_ANNOTATION_META_END\s*<\/pre>/) ||
     note.match(/ZAM_TXT_ANNOTATION_META:([\s\S]*?):ZAM_TXT_ANNOTATION_META_END/) ||
     note.match(/<pre[^>]*data-zam-txt-annotation-meta=["']true["'][^>]*>([\s\S]*?)<\/pre>/);
-  if (!match?.[1]) return null;
+  if (!match?.[1]) {
+    if (visibleMeta && (!attachmentItem || visibleMeta.attachmentKey === attachmentItem.key)) return visibleMeta;
+    return null;
+  }
   try {
     const meta = JSON.parse(unescapeHtml(match[1]));
     if (meta?.marker !== TXT_NOTE_MARKER) return null;
@@ -89,6 +139,7 @@ export function parseTextAnnotationNote(noteItem: Zotero.Item, attachmentItem?: 
       createdAt?: string;
     };
   } catch {
+    if (visibleMeta && (!attachmentItem || visibleMeta.attachmentKey === attachmentItem.key)) return visibleMeta;
     return null;
   }
 }
@@ -163,6 +214,7 @@ export async function createTextAnnotation(
     `<div data-zam-txt-annotation="true" style="border-left:4px solid ${escapeHtml(color)};padding-left:12px;">` +
       `<h2>${createdAt}｜卡片｜${escapeHtml(pageLabel)}｜</h2>` +
       `<!-- ZAM_TXT_ANNOTATION_META:${escapedMeta}:ZAM_TXT_ANNOTATION_META_END -->` +
+      `<span data-zam-txt-annotation-meta="${escapedMeta}" style="display:none">&nbsp;</span>` +
       `<p><a href="zotero://select/library/items/${escapeHtml(attachmentItem.key)}#zam-txt-return=${escapeHtml(noteKey)}" data-zam-txt-return-key="${escapeHtml(noteKey)}">返回 TXT 摘录</a></p>` +
       `<p><strong>核心摘录</strong></p>` +
       `<blockquote>${excerptHtml}</blockquote>` +
