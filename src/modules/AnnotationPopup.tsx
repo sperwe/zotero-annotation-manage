@@ -37,6 +37,7 @@ import { TagElementProps } from "zotero-plugin-toolkit";
 import { isSimpleTextReader } from "../utils/readerType";
 import { getTextPositionFromSelection } from "../utils/textPosition";
 import { createTextAnnotation } from "../utils/createTextAnnotation";
+import { txtLog, txtLogError } from "../utils/txtLog";
 
 export class AnnotationPopup {
   reader?: _ZoteroTypes.ReaderInstance;
@@ -1259,14 +1260,42 @@ export async function saveAnnotationTags(
         // ===== TXT (SimpleTextReader) 标注创建 =====
         if (isSimpleTextReader(reader)) {
           ztoolkit.log("[saveAnnotationTags] Creating TXT annotation");
+          txtLog("save:start", {
+            itemID: item?.id,
+            itemKey: item?.key,
+            selectedTags: selectedTags.map((tag) => tag.tag),
+            tagsRequire,
+            tagsRemove,
+            hasParamsIds: !!params.ids,
+            hasParamsAnnotation: !!params.annotation,
+          });
 
           // 从 DOM Selection 计算文本位置
-          const textPos =
-            (params.annotation?.position as any)?.type === "text"
-              ? (params.annotation?.position as any)
-              : getTextPositionFromSelection(doc);
+          const paramsTextPos = (params.annotation?.position as any)?.type === "text" ? (params.annotation?.position as any) : null;
+          (doc.defaultView as any)?.__zoteroAnnotationManageRestoreSelection?.();
+          const selectionTextPos = paramsTextPos ? null : getTextPositionFromSelection(doc);
+          const cachedTextPos =
+            paramsTextPos || selectionTextPos ? null : (doc.defaultView as any)?.__zoteroAnnotationManageGetLastTextPosition?.();
+          const textPos = paramsTextPos || selectionTextPos || cachedTextPos;
+          ztoolkit.log("[saveAnnotationTags] TXT position source", {
+            fromParams: !!paramsTextPos,
+            fromSelection: !!selectionTextPos,
+            fromCache: !!cachedTextPos,
+          });
+          txtLog("save:position", {
+            fromParams: !!paramsTextPos,
+            fromSelection: !!selectionTextPos,
+            fromCache: !!cachedTextPos,
+            hasTextPos: !!textPos,
+            pageIndex: textPos?.pageIndex,
+            charStart: textPos?.charStart,
+            charEnd: textPos?.charEnd,
+            textLen: textPos?.text?.length || 0,
+            text: textPos?.text?.slice(0, 40),
+          });
           if (!textPos) {
             ztoolkit.log("[saveAnnotationTags] No valid text selection found for TXT");
+            txtLog("save:no-position");
             return false;
           }
 
@@ -1274,6 +1303,12 @@ export async function saveAnnotationTags(
 
           try {
             // 创建 TXT 标注
+            txtLog("save:create-before", {
+              type: annotationType || "highlight",
+              color,
+              tags: tags.map((tag) => tag.name),
+              commentLen: comment.length,
+            });
             const newAnnItem = await createTextAnnotation(
               item, // TXT 附件 item
               textPos,
@@ -1287,13 +1322,22 @@ export async function saveAnnotationTags(
 
             if (newAnnItem) {
               ztoolkit.log("[saveAnnotationTags] TXT annotation created:", newAnnItem.key);
+              txtLog("save:create-success", {
+                key: newAnnItem.key,
+                id: newAnnItem.id,
+                annotationTextLen: newAnnItem.annotationText?.length || 0,
+                annotationPositionLen: newAnnItem.annotationPosition?.length || 0,
+              });
+              (doc.defaultView as any)?.__zoteroAnnotationManageApplyHighlight?.(textPos, color, newAnnItem.key);
               memoizeAsyncGroupAllTagsDB.replaceCacheByKey();
               memRelateTags.replaceCacheByArgs(item);
               return [newAnnItem];
             }
           } catch (e) {
             ztoolkit.log("[saveAnnotationTags] TXT annotation creation failed:", e);
+            txtLogError("save:create-error", e, { itemID: item?.id, itemKey: item?.key });
           }
+          txtLog("save:create-false");
           return false;
         }
 

@@ -29,6 +29,7 @@ import { IntlProvider } from "react-intl";
 import * as React from "react";
 import { AnnotationMatrix, content2AnnotationMatrix } from "../component/AnnotationMatrix";
 import { ProgressWindowHelper, TagElementProps } from "zotero-plugin-toolkit";
+import { parseTextAnnotationNote } from "../utils/createTextAnnotation";
 // import { groupBy } from "lodash";
 
 /**
@@ -59,6 +60,77 @@ function parseTxtPosition(annotationPosition: string | undefined): { pageIndex: 
     // Not a valid JSON or not a TXT position
   }
   return null;
+}
+
+function createAnnotationRes(
+  item: Zotero.Item,
+  attachment: Zotero.Item,
+  ann: Zotero.Item,
+  itemTags: string,
+  author: string,
+  year: string,
+  title: string,
+  attachmentTitle: string,
+  isTxt: boolean,
+): AnnotationRes {
+  const text = ann.annotationText || "";
+  const comment = ann.annotationComment || "";
+  const color = ann.annotationColor;
+  const type = ann.annotationType;
+  const tags = ann.getTags();
+  const annotationTags = tags.map((a) => a.tag).join("  ");
+  let page = ann.annotationPageLabel;
+  if (!page && isTxt) {
+    const txtPos = parseTxtPosition(ann.annotationPosition);
+    if (txtPos) page = `段落 ${txtPos.pageIndex + 1}`;
+  }
+  return {
+    item,
+    pdf: attachment,
+    ann,
+    author,
+    year,
+    title,
+    pdfTitle: attachmentTitle,
+    text,
+    color,
+    type,
+    comment,
+    itemTags,
+    page,
+    dateModified: ann.dateModified,
+    tag: {
+      tag: "在filter使用flatMap之后才能用。例如：filter:(ans)=>ans.flatMap(an=>an.tags.map(tag=>Object.assign({},an,{tag})))",
+      type: 0,
+    },
+    tags,
+    annotationTags,
+    html: "<span color='red'>等待转换：请调用convertHtml方法</span>",
+  } as AnnotationRes;
+}
+
+function getTxtNoteAnnotations(item: Zotero.Item, attachment: Zotero.Item): Zotero.Item[] {
+  return Zotero.Items.get(item.getNotes(false))
+    .map((note) => {
+      const meta = parseTextAnnotationNote(note, attachment);
+      if (!meta) return null;
+      return {
+        key: note.key,
+        id: note.id,
+        dateModified: note.dateModified,
+        parentItem: attachment,
+        parentItemKey: attachment.key,
+        annotationType: meta.type,
+        annotationText: meta.text,
+        annotationComment: meta.comment,
+        annotationColor: meta.color,
+        annotationPageLabel: meta.pageLabel,
+        annotationPosition: JSON.stringify(meta.position),
+        annotationSortIndex: meta.position.charStart,
+        getTags: () => note.getTags(),
+      } as unknown as Zotero.Item;
+    })
+    .filter((note): note is Zotero.Item => !!note);
 }
 
 export function getAllAnnotations(items: Zotero.Item[]) {
@@ -95,47 +167,10 @@ export function getAllAnnotations(items: Zotero.Item[]) {
             const attachmentTitle = attachment.getDisplayTitle();
             // For TXT, use "段落" instead of "page"
             const isTxt = isTxtAttachment(attachment);
-            return attachment.getAnnotations().flatMap((ann) => {
-              const text = ann.annotationText || "";
-              const comment = ann.annotationComment || "";
-              const color = ann.annotationColor;
-              const type = ann.annotationType;
-              const tags = ann.getTags();
-              const annotationTags = tags.map((a) => a.tag).join("  ");
-              // For TXT, use paragraph index from annotationPosition
-              let page = ann.annotationPageLabel;
-              if (!page && isTxt) {
-                const txtPos = parseTxtPosition(ann.annotationPosition);
-                if (txtPos) {
-                  page = `段落 ${txtPos.pageIndex + 1}`;
-                }
-              }
-              const dateModified = ann.dateModified;
-              const o = {
-                item,
-                pdf: attachment,
-                ann,
-                author,
-                year,
-                title,
-                pdfTitle: attachmentTitle,
-                text,
-                color,
-                type,
-                comment,
-                itemTags,
-                page,
-                dateModified,
-                tag: {
-                  tag: "在filter使用flatMap之后才能用。例如：filter:(ans)=>ans.flatMap(an=>an.tags.map(tag=>Object.assign({},an,{tag})))",
-                  type: 0,
-                },
-                tags,
-                annotationTags,
-                html: "<span color='red'>等待转换：请调用convertHtml方法</span>",
-              } as AnnotationRes;
-              return o;
-            });
+            const annotations = isTxt ? getTxtNoteAnnotations(item, attachment) : attachment.getAnnotations();
+            return annotations.flatMap((ann) =>
+              createAnnotationRes(item, attachment, ann, itemTags, author, year, title, attachmentTitle, isTxt),
+            );
           })
       );
     });

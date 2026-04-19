@@ -6,20 +6,64 @@
  */
 
 import { TextAnnotationPosition, CreateTextAnnotationOptions } from "../types/textAnnotation";
+import { txtLog } from "./txtLog";
 
-/**
- * Generate a unique annotation key
- */
-function generateAnnotationKey(): string {
-  // Zotero.DataObjectUtilities.generateKey is the standard way
-  const key =
-    (Zotero as any).DataObjectUtilities?.generateKey?.() ||
-    `XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX`.replace(/X/g, () => Math.floor(Math.random() * 16).toString(16));
-  return key;
+const TXT_NOTE_MARKER = "zotero-annotation-manage-txt";
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function unescapeHtml(text: string): string {
+  return text
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
+export function parseTextAnnotationNote(noteItem: Zotero.Item, attachmentItem?: Zotero.Item) {
+  if (!noteItem?.isNote?.()) return null;
+  const note = noteItem.getNote?.() || "";
+  if (!note.includes(TXT_NOTE_MARKER)) return null;
+  const match =
+    note.match(/<!--\s*ZAM_TXT_ANNOTATION_META:([\s\S]*?):ZAM_TXT_ANNOTATION_META_END\s*-->/) ||
+    note.match(/<pre[^>]*>\s*ZAM_TXT_ANNOTATION_META:([\s\S]*?):ZAM_TXT_ANNOTATION_META_END\s*<\/pre>/) ||
+    note.match(/ZAM_TXT_ANNOTATION_META:([\s\S]*?):ZAM_TXT_ANNOTATION_META_END/) ||
+    note.match(/<pre[^>]*data-zam-txt-annotation-meta=["']true["'][^>]*>([\s\S]*?)<\/pre>/);
+  if (!match?.[1]) return null;
+  try {
+    const meta = JSON.parse(unescapeHtml(match[1]));
+    if (meta?.marker !== TXT_NOTE_MARKER) return null;
+    if (attachmentItem && meta.attachmentKey !== attachmentItem.key) return null;
+    return meta as {
+      marker: string;
+      attachmentKey: string;
+      attachmentID: number;
+      type: "highlight" | "underline" | "note";
+      color: string;
+      pageLabel: string;
+      position: TextAnnotationPosition;
+      text: string;
+      comment: string;
+    };
+  } catch {
+    return null;
+  }
 }
 
 /**
- * Create a TXT annotation item
+ * Create a TXT pseudo-annotation note.
+ *
+ * Zotero core only allows annotation parents to be PDF, EPUB, or HTML snapshots.
+ * TXT selections are therefore persisted as tagged child notes with structured metadata,
+ * and export code reads them back as annotation-shaped records.
  *
  * @param attachmentItem - The TXT attachment Zotero Item
  * @param position - The text position (charStart, charEnd, etc.)
@@ -39,36 +83,79 @@ export async function createTextAnnotation(
     options,
   });
 
-  const key = generateAnnotationKey();
   const pageLabel = `段落 ${position.pageIndex + 1}`;
-
-  const annotation = await Zotero.Annotations.saveFromJSON(attachmentItem, {
-    key,
-    type,
+  const annotationPosition = {
+    type: "text",
+    pageIndex: position.pageIndex,
+    charStart: position.charStart,
+    charEnd: position.charEnd,
     text: position.text,
-    comment,
+  };
+  const meta = {
+    marker: TXT_NOTE_MARKER,
+    attachmentKey: attachmentItem.key,
+    attachmentID: attachmentItem.id,
+    type,
     color,
     pageLabel,
-    sortIndex: String(position.charStart).padStart(10, "0"),
-    position: {
-      type: "text",
-      pageIndex: position.pageIndex,
-      charStart: position.charStart,
-      charEnd: position.charEnd,
-      text: position.text,
-    },
-    tags,
-  } as unknown as _ZoteroTypes.Annotations.AnnotationJson);
-  await annotation.saveTx();
+    position: annotationPosition,
+    text: position.text,
+    comment,
+  };
+  const tagNames = tags.map((tag) => tag.name);
+  const sourceTitle = attachmentItem.getDisplayTitle?.() || "TXT";
+  const escapedMeta = escapeHtml(JSON.stringify(meta));
+  const excerptHtml = escapeHtml(position.text).replace(/\n/g, "<br/>");
+  const commentHtml = comment ? escapeHtml(comment).replace(/\n/g, "<br/>") : "";
 
-  ztoolkit.log("[createTextAnnotation] Annotation created:", {
-    key: annotation.key,
-    id: annotation.id,
-    type: annotation.annotationType,
-    color: annotation.annotationColor,
+  txtLog("create:start", {
+    attachmentID: attachmentItem.id,
+    attachmentKey: attachmentItem.key,
+    type,
+    color,
+    pageLabel,
+    textLen: position.text.length,
+    tags: tags.map((tag) => tag.name),
   });
 
-  return annotation;
+  const note = new Zotero.Item("note");
+  note.libraryID = attachmentItem.libraryID;
+  note.parentID = attachmentItem.parentItemID || attachmentItem.id;
+  note.setNote(
+    `<div data-zam-txt-annotation="true" style="border-left:4px solid ${escapeHtml(color)};padding-left:12px;">` +
+      `<h2>卡片｜${escapeHtml(pageLabel)}</h2>` +
+      `<!-- ZAM_TXT_ANNOTATION_META:${escapedMeta}:ZAM_TXT_ANNOTATION_META_END -->` +
+      `<p><strong>核心摘录</strong></p>` +
+      `<blockquote>${excerptHtml}</blockquote>` +
+      `<p><strong>我的理解</strong></p>` +
+      `<p>${commentHtml || " "}</p>` +
+      `<p><strong>可连接的概念</strong></p>` +
+      `<ul><li> </li></ul>` +
+      `<p><strong>后续问题</strong></p>` +
+      `<ul><li> </li></ul>` +
+      `<p><strong>来源</strong>：${escapeHtml(sourceTitle)}｜${escapeHtml(pageLabel)}｜字符 ${position.charStart}-${position.charEnd}</p>` +
+      (tagNames.length ? `<p><strong>标签</strong>：${tagNames.map(escapeHtml).join("、")}</p>` : "") +
+      `</div>`,
+  );
+
+  for (const tag of tags) {
+    note.addTag(tag.name, 0);
+  }
+
+  txtLog("create:note-before", {
+    parentID: note.parentID,
+    libraryID: note.libraryID,
+    metaLen: JSON.stringify(meta).length,
+  });
+  await note.saveTx();
+
+  txtLog("create:note-success", {
+    key: note.key,
+    id: note.id,
+    parentID: note.parentID,
+  });
+
+  return note;
 }
 
 /**

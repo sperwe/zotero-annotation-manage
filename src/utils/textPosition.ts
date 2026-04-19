@@ -26,22 +26,29 @@ function getParagraphs(doc: Document): NodeListOf<Element> | null {
  * Calculate character offset from container start to a node within it
  */
 function getCharacterOffset(container: Element, targetNode: Node, offset: number): number {
-  const doc = container.ownerDocument;
-  const nodeFilter = doc.defaultView?.NodeFilter || NodeFilter;
-  const walker = doc.createTreeWalker(container, nodeFilter.SHOW_TEXT, null);
+  try {
+    const range = container.ownerDocument.createRange();
+    range.selectNodeContents(container);
+    range.setEnd(targetNode, offset);
+    return range.toString().length;
+  } catch {
+    const doc = container.ownerDocument;
+    const nodeFilter = doc.defaultView?.NodeFilter || NodeFilter;
+    const walker = doc.createTreeWalker(container, nodeFilter.SHOW_TEXT, null);
 
-  let charOffset = 0;
-  let currentNode: Node | null = walker.nextNode();
+    let charOffset = 0;
+    let currentNode: Node | null = walker.nextNode();
 
-  while (currentNode) {
-    if (currentNode === targetNode) {
-      return charOffset + offset;
+    while (currentNode) {
+      if (currentNode === targetNode) {
+        return charOffset + offset;
+      }
+      charOffset += (currentNode.textContent || "").length;
+      currentNode = walker.nextNode();
     }
-    charOffset += (currentNode.textContent || "").length;
-    currentNode = walker.nextNode();
-  }
 
-  return charOffset;
+    return charOffset;
+  }
 }
 
 /**
@@ -49,9 +56,10 @@ function getCharacterOffset(container: Element, targetNode: Node, offset: number
  */
 function getParagraphIndex(container: Element, targetNode: Node): number {
   const paragraphs = container.querySelectorAll('[data-page-index], [data-line], [id^="line"], p, h1, h2, h3, h4, h5, h6');
+  const elementNode = targetNode.nodeType === 1 ? (targetNode as Element) : targetNode.parentElement;
 
   for (let i = 0; i < paragraphs.length; i++) {
-    if (paragraphs[i].contains(targetNode)) {
+    if (paragraphs[i].contains(targetNode) || (elementNode && paragraphs[i].contains(elementNode))) {
       const element = paragraphs[i] as HTMLElement;
       const value = element.dataset.pageIndex || element.dataset.line || (element.id?.match(/^line(\d+)$/)?.[1] ?? "");
       return value ? parseInt(value, 10) : i;
@@ -172,18 +180,10 @@ export function getFullTextContent(doc: Document): string {
   return content?.textContent || "";
 }
 
-/**
- * Highlight a text range in the document (for debugging/testing)
- *
- * @param doc - The document
- * @param position - The text position to highlight
- * @returns The highlighted range or null
- */
-export function highlightTextPosition(doc: Document, position: TextAnnotationPosition): Range | null {
+export function highlightTextPosition(doc: Document, position: TextAnnotationPosition): HTMLElement | null {
   const content = getContentElement(doc);
   if (!content) return null;
 
-  const textContent = content.textContent || "";
   const startNodeAndOffset = findNodeAtOffset(content, position.charStart);
   const endNodeAndOffset = findNodeAtOffset(content, position.charEnd);
 
@@ -196,20 +196,40 @@ export function highlightTextPosition(doc: Document, position: TextAnnotationPos
   range.setStart(startNodeAndOffset.node, startNodeAndOffset.offset);
   range.setEnd(endNodeAndOffset.node, endNodeAndOffset.offset);
 
-  // Create highlight element
-  const mark = doc.createElement("mark");
-  mark.style.backgroundColor = "#ffd400";
-  mark.style.color = "#000";
+  const contentElement = content as HTMLElement;
+  const originalPosition = doc.defaultView?.getComputedStyle(contentElement)?.position;
+  if (!originalPosition || originalPosition === "static") {
+    contentElement.style.position = "relative";
+  }
+  contentElement.style.isolation = "isolate";
+  const contentRect = contentElement.getBoundingClientRect();
+  const overlay = doc.createElement("span");
+  overlay.className = "zam-txt-highlight-overlay";
+  overlay.style.position = "absolute";
+  overlay.style.left = "0";
+  overlay.style.top = "0";
+  overlay.style.width = "0";
+  overlay.style.height = "0";
+  overlay.style.pointerEvents = "none";
+  overlay.style.zIndex = "1";
 
-  try {
-    range.surroundContents(mark);
-  } catch (e) {
-    // If surroundContents fails (e.g., partially selected nodes), use extractContents
-    ztoolkit.log("[textPosition] surroundContents failed, using alternative method");
-    return null;
+  const rects = Array.from(range.getClientRects() || []).filter((rect) => rect.width > 0 && rect.height > 0);
+  if (!rects.length) return null;
+
+  for (const rect of rects) {
+    const segment = doc.createElement("span");
+    segment.className = "zam-txt-highlight-segment";
+    segment.style.position = "absolute";
+    segment.style.left = `${rect.left - contentRect.left + contentElement.scrollLeft}px`;
+    segment.style.top = `${rect.top - contentRect.top + contentElement.scrollTop}px`;
+    segment.style.width = `${rect.width}px`;
+    segment.style.height = `${rect.height}px`;
+    segment.style.pointerEvents = "none";
+    overlay.appendChild(segment);
   }
 
-  return range;
+  contentElement.appendChild(overlay);
+  return overlay;
 }
 
 /**

@@ -29,6 +29,7 @@ import { useImmer } from "use-immer";
 // import { ArrowContainer, Popover, PopoverPosition, PopoverState, usePopover } from "react-tiny-popover";
 // import { ChangeColor } from "./ChangeColor";
 import { saveAnnotationTags } from "../modules/AnnotationPopup";
+import { isSimpleTextReader } from "../utils/readerType";
 
 import {
   Config,
@@ -76,6 +77,7 @@ export function PopupRoot({
   //定义全局变量
   // ztoolkit.log("css测试", styles.tagButton);
   const item = reader._item;
+  const isTxtReader = isSimpleTextReader(reader);
   // item.isCollection
   const _annotationManager = reader._annotationManager;
   const _keyboardManager = reader._keyboardManager;
@@ -139,7 +141,7 @@ export function PopupRoot({
   const [pBoundaryInset, setPBoundaryInset] = useState(getPrefAs("pBoundaryInset", 40));
   const [pArrowSize, setPArrowSize] = useState(getPrefAs("pArrowSize", 0));
   const [pPositions, updatePPositions] = useImmer(getPrefAs("pPositions", "bottom,left,top,right").split(","));
-  const [bAutoFocus, setBAutoFocus] = useState(getPrefAs("bAutoFocus", false));
+  const [bAutoFocus, setBAutoFocus] = useState(isTxtReader ? false : getPrefAs("bAutoFocus", false));
   const [pFCLLeft, setFCLLeft] = useState(getPrefAs("pFCLLeft", 0));
   const [nFCLTop, setFCLTop] = useState(getPrefAs("nFCLTop", 0));
   const [selectionPopupSize, setSelectionPopupSize] = useState({ width: 0, height: 0 });

@@ -6,7 +6,9 @@ import { groupBy } from "../utils/groupBy";
 import { AnnotationPopup } from "./AnnotationPopup";
 import { Relations } from "../utils/Relations";
 import { isSupportedReader, isSimpleTextReader } from "../utils/readerType";
-import { getTextPositionFromSelection } from "../utils/textPosition";
+import { getTextPositionFromSelection, highlightTextPosition } from "../utils/textPosition";
+import { txtLog, txtLogError } from "../utils/txtLog";
+import { parseTextAnnotationNote } from "../utils/createTextAnnotation";
 // import { text2Ma } from "./readerTools";
 
 const simpleTextReaderCleanups: Array<() => void> = [];
@@ -41,6 +43,7 @@ function unregister() {
 
 function registerSimpleTextReaderBridge() {
   for (const win of Zotero.getMainWindows()) {
+    (win as any).__zoteroAnnotationManageTxtBridgeWindowCleanup?.();
     const tabs = (win as any).Zotero_Tabs;
     const deck = tabs?.deck as Element | undefined;
     if (!deck) continue;
@@ -50,7 +53,12 @@ function registerSimpleTextReaderBridge() {
 
     const observer = new win.MutationObserver(discover);
     observer.observe(deck, { childList: true, subtree: true });
-    simpleTextReaderCleanups.push(() => observer.disconnect());
+    const cleanup = () => {
+      observer.disconnect();
+      delete (win as any).__zoteroAnnotationManageTxtBridgeWindowCleanup;
+    };
+    (win as any).__zoteroAnnotationManageTxtBridgeWindowCleanup = cleanup;
+    simpleTextReaderCleanups.push(cleanup);
   }
 }
 
@@ -86,7 +94,12 @@ function installSimpleTextReaderDocs(win: Window) {
 }
 
 function installSimpleTextReaderDoc(_win: Window, contentWin?: Window, doc?: Document) {
-  if (!contentWin || !doc || simpleTextReaderDocs.has(doc) || !doc.getElementById("content")) return;
+  if (!contentWin || !doc || !doc.getElementById("content")) return;
+  if ((contentWin as any).__zoteroAnnotationManageTxtBridgeInstalled) return;
+  if (simpleTextReaderDocs.has(doc)) return;
+  (contentWin as any).__zoteroAnnotationManageTxtBridgeCleanup?.();
+  if ((contentWin as any).__zoteroAnnotationManageTxtBridgeInstalled) return;
+  if (simpleTextReaderDocs.has(doc)) return;
 
   const bookData = (contentWin as any)._str_bookData || (contentWin.parent as any)?._str_bookData;
   const itemID = Number(bookData?.itemID);
@@ -95,94 +108,229 @@ function installSimpleTextReaderDoc(_win: Window, contentWin?: Window, doc?: Doc
   const item = Zotero.Items.get(itemID);
   if (!item?.isAttachment?.()) return;
 
+  txtLog("install", { itemID, title: item.getDisplayTitle?.() });
+  (contentWin as any).__zoteroAnnotationManageTxtBridgeInstalled = true;
   simpleTextReaderDocs.add(doc);
   let popup: AnnotationPopup | undefined;
   let timer: number | undefined;
   let interactingWithPopup = false;
+  let restoringSelection = false;
+  let lastTextPosition: ReturnType<typeof getTextPositionFromSelection> = null;
+  let lastTextPositionAt = 0;
+  let lastRange: Range | null = null;
+  const excerptButtonStyle = doc.createElement("style");
+  excerptButtonStyle.textContent =
+    ".str-excerpt-button{display:none!important;}.zam-txt-highlight-segment{background:var(--zam-txt-highlight-bg,rgba(255,212,0,.35));border-bottom:2px solid var(--zam-txt-highlight-color,#ffd400);box-sizing:border-box;}.zam-txt-highlight-action{position:absolute;min-width:18px;height:18px;border:1px solid var(--zam-txt-highlight-color,#ffd400);border-radius:9px;background:#fff;color:#111;font:12px/16px sans-serif;padding:0;pointer-events:auto;z-index:3;cursor:pointer;box-shadow:0 1px 5px rgba(0,0,0,.18);}";
+  doc.documentElement.appendChild(excerptButtonStyle);
+
+  const applyTxtHighlight = (position: ReturnType<typeof getTextPositionFromSelection>, color = "#ffd400", key = "") => {
+    if (!position) return;
+    try {
+      const mark = highlightTextPosition(doc, position);
+      if (mark) {
+        mark.classList.add("zam-txt-highlight");
+        mark.dataset.zamTxtNoteKey = key;
+        mark.style.setProperty("--zam-txt-highlight-color", color);
+        mark.style.setProperty("--zam-txt-highlight-bg", `${color}55`);
+        const firstSegment = mark.querySelector(".zam-txt-highlight-segment") as HTMLElement | null;
+        if (firstSegment && key) {
+          const action = doc.createElement("button");
+          action.type = "button";
+          action.className = "zam-txt-highlight-action";
+          action.textContent = "⋯";
+          action.title = "打开/删除 TXT 卡片";
+          action.style.left = firstSegment.style.left;
+          action.style.top = `calc(${firstSegment.style.top} - 20px)`;
+          action.addEventListener("click", async (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const note = getItem(key);
+            if (!note) {
+              mark.remove();
+              txtLog("highlight:note-missing", { key });
+              return;
+            }
+            const remove = contentWin.confirm("删除这条 TXT 卡片摘录？\n取消则打开卡片笔记。");
+            if (remove) {
+              await note.eraseTx();
+              mark.remove();
+              txtLog("highlight:deleted", { key });
+            } else {
+              Zotero.getActiveZoteroPane().selectItem(note.id);
+              txtLog("highlight:open-note", { key, id: note.id });
+            }
+          });
+          mark.appendChild(action);
+        }
+      }
+      txtLog("highlight:applied", { key, color, hasMark: !!mark, charStart: position.charStart, charEnd: position.charEnd });
+    } catch (e) {
+      txtLogError("highlight:error", e, { key });
+    }
+  };
+
+  const restoreSavedHighlights = () => {
+    const parentItem = item.parentItem;
+    if (!parentItem) return;
+    Zotero.Items.get(parentItem.getNotes(false)).forEach((note) => {
+      const meta = parseTextAnnotationNote(note, item);
+      if (!meta) return;
+      applyTxtHighlight(meta.position, meta.color, note.key);
+    });
+  };
+  contentWin.setTimeout(restoreSavedHighlights, 300);
+
+  const restoreSelection = (reason: string) => {
+    if (!lastRange) return;
+    try {
+      restoringSelection = true;
+      const selection = doc.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(lastRange);
+      txtLog("restore-selection", { reason, isCollapsed: selection?.isCollapsed, textLen: selection?.toString().length || 0 });
+      contentWin.setTimeout(() => {
+        restoringSelection = false;
+      }, 80);
+    } catch (e) {
+      restoringSelection = false;
+      txtLogError("restore-selection:error", e, { reason });
+    }
+  };
 
   const hidePopup = () => {
+    txtLog("hide", { hasPopup: !!popup });
+    if (timer) {
+      contentWin.clearTimeout(timer);
+      timer = undefined;
+    }
     popup?.rootDiv?.remove();
     popup = undefined;
   };
 
   const showPopup = () => {
-    const selection = doc.getSelection();
-    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+    try {
+      if (popup) {
+        txtLog("show:skip-existing-popup");
+        return;
+      }
+      const selection = doc.getSelection();
+      if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+        txtLog("show:empty-selection", { hasPopup: !!popup, rangeCount: selection?.rangeCount, isCollapsed: selection?.isCollapsed });
+        if (!popup) hidePopup();
+        return;
+      }
+
+      const root = doc.getElementById(`${config.addonRef}-PopupDiv`);
+      const commonAncestor = selection.getRangeAt(0).commonAncestorContainer;
+      if (root?.contains(commonAncestor)) return;
+
+      const textPosition = getTextPositionFromSelection(doc);
+      if (!textPosition) {
+        txtLog("show:no-position");
+        hidePopup();
+        return;
+      }
+      lastTextPosition = textPosition;
+      lastTextPositionAt = Date.now();
+      lastRange = selection.getRangeAt(0).cloneRange();
+      txtLog("show:create", {
+        text: textPosition.text.slice(0, 24),
+        len: textPosition.text.length,
+        pageIndex: textPosition.pageIndex,
+        charStart: textPosition.charStart,
+        charEnd: textPosition.charEnd,
+      });
+
+      const rect = selection.getRangeAt(0).getBoundingClientRect();
+      const left = Math.max(12, Math.min(rect.left, doc.documentElement.clientWidth - 340));
+      const top = Math.max(12, rect.bottom + 8);
+      const reader = {
+        itemID: item.id,
+        _item: item,
+        _iframeWindow: contentWin,
+        _window: contentWin,
+        _state: { textSelectionAnnotationMode: "highlight" },
+        _primaryView: { _onSetSelectionPopup: hidePopup },
+      } as unknown as _ZoteroTypes.ReaderInstance;
+
       hidePopup();
-      return;
-    }
-
-    const root = doc.getElementById(`${config.addonRef}-PopupDiv`);
-    const commonAncestor = selection.getRangeAt(0).commonAncestorContainer;
-    if (root?.contains(commonAncestor)) return;
-
-    const textPosition = getTextPositionFromSelection(doc);
-    if (!textPosition) {
-      hidePopup();
-      return;
-    }
-
-    const rect = selection.getRangeAt(0).getBoundingClientRect();
-    const left = Math.max(12, Math.min(rect.left, doc.documentElement.clientWidth - 340));
-    const top = Math.max(12, rect.bottom + 8);
-    const reader = {
-      itemID: item.id,
-      _item: item,
-      _iframeWindow: contentWin,
-      _window: contentWin,
-      _state: { textSelectionAnnotationMode: "highlight" },
-      _primaryView: { _onSetSelectionPopup: hidePopup },
-    } as unknown as _ZoteroTypes.ReaderInstance;
-
-    hidePopup();
-    popup = new AnnotationPopup(
-      reader,
-      {
-        annotation: {
-          text: textPosition.text,
-          type: "highlight",
-          color: "#ffd400",
-          pageLabel: `段落 ${textPosition.pageIndex + 1}`,
-          position: textPosition,
-        } as unknown as _ZoteroTypes.Annotations.AnnotationJson,
-      },
-      item,
-      doc,
-    );
-
-    if (popup.rootDiv) {
-      popup.rootDiv.addEventListener(
-        "mousedown",
-        () => {
-          interactingWithPopup = true;
-          contentWin.setTimeout(() => {
-            interactingWithPopup = false;
-          }, 300);
+      popup = new AnnotationPopup(
+        reader,
+        {
+          annotation: {
+            text: textPosition.text,
+            type: "highlight",
+            color: "#ffd400",
+            pageLabel: `段落 ${textPosition.pageIndex + 1}`,
+            position: textPosition,
+          } as unknown as _ZoteroTypes.Annotations.AnnotationJson,
         },
-        true,
+        item,
+        doc,
       );
-      popup.rootDiv.style.position = "fixed";
-      popup.rootDiv.style.left = `${left}px`;
-      popup.rootDiv.style.top = `${top}px`;
-      popup.rootDiv.style.zIndex = "99990";
-      popup.rootDiv.style.maxWidth = "888px";
-      popup.rootDiv.style.maxHeight = "320px";
-      popup.rootDiv.style.overflowY = "auto";
-      doc.body.appendChild(popup.rootDiv);
+
+      if (popup.rootDiv) {
+        popup.rootDiv.addEventListener(
+          "mousedown",
+          () => {
+            interactingWithPopup = true;
+            contentWin.setTimeout(() => {
+              interactingWithPopup = false;
+            }, 300);
+          },
+          true,
+        );
+        popup.rootDiv.style.position = "fixed";
+        popup.rootDiv.style.left = `${left}px`;
+        popup.rootDiv.style.top = `${top}px`;
+        popup.rootDiv.style.zIndex = "99990";
+        popup.rootDiv.style.maxWidth = "888px";
+        popup.rootDiv.style.maxHeight = "320px";
+        popup.rootDiv.style.overflowY = "auto";
+        doc.body.appendChild(popup.rootDiv);
+        txtLog("show:appended", { active: doc.activeElement?.tagName, selectionCollapsed: doc.getSelection()?.isCollapsed });
+        contentWin.setTimeout(() => restoreSelection("after-append"), 0);
+        contentWin.setTimeout(() => restoreSelection("after-react"), 50);
+      }
+    } catch (e) {
+      txtLogError("show:error", e);
+      hidePopup();
     }
   };
 
   const onSelectionChange = () => {
-    if (interactingWithPopup) return;
+    if (interactingWithPopup || restoringSelection) {
+      txtLog("selection:ignored-transient", { interactingWithPopup, restoringSelection });
+      return;
+    }
+    const selection = doc.getSelection();
+    if (popup) {
+      txtLog("selection:ignored-while-popup", { rangeCount: selection?.rangeCount, isCollapsed: selection?.isCollapsed });
+      return;
+    }
+    txtLog("selection", { hasPopup: !!popup, rangeCount: selection?.rangeCount, isCollapsed: selection?.isCollapsed });
     if (timer) contentWin.clearTimeout(timer);
     timer = contentWin.setTimeout(showPopup, 150);
   };
 
   doc.addEventListener("selectionchange", onSelectionChange);
-  simpleTextReaderCleanups.push(() => {
+  (contentWin as any).__zoteroAnnotationManageGetLastTextPosition = () =>
+    lastTextPosition && Date.now() - lastTextPositionAt < 30000 ? lastTextPosition : null;
+  (contentWin as any).__zoteroAnnotationManageRestoreSelection = () => restoreSelection("external");
+  (contentWin as any).__zoteroAnnotationManageApplyHighlight = applyTxtHighlight;
+  const cleanup = () => {
     doc.removeEventListener("selectionchange", onSelectionChange);
+    excerptButtonStyle.remove();
+    simpleTextReaderDocs.delete(doc);
+    delete (contentWin as any).__zoteroAnnotationManageGetLastTextPosition;
+    delete (contentWin as any).__zoteroAnnotationManageRestoreSelection;
+    delete (contentWin as any).__zoteroAnnotationManageApplyHighlight;
+    delete (contentWin as any).__zoteroAnnotationManageTxtBridgeCleanup;
+    delete (contentWin as any).__zoteroAnnotationManageTxtBridgeInstalled;
     hidePopup();
-  });
+  };
+  (contentWin as any).__zoteroAnnotationManageTxtBridgeCleanup = cleanup;
+  simpleTextReaderCleanups.push(cleanup);
 }
 
 function renderTextSelectionPopup(event: _ZoteroTypes.Reader.EventParams<"renderTextSelectionPopup">) {
