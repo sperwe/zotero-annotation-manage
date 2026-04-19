@@ -33,6 +33,10 @@ import { PopupRoot } from "../component/PopupRoot";
 import { waitFor } from "../utils/wait";
 import { ScaleActionTypeArray, ScaleItemActionTypeArray } from "../component/Config";
 import { TagElementProps } from "zotero-plugin-toolkit";
+// TXT annotation support
+import { isSimpleTextReader } from "../utils/readerType";
+import { getTextPositionFromSelection } from "../utils/textPosition";
+import { createTextAnnotation } from "../utils/createTextAnnotation";
 
 export class AnnotationPopup {
   reader?: _ZoteroTypes.ReaderInstance;
@@ -1190,7 +1194,8 @@ export async function saveAnnotationTags(
   searchTagAddIfEmpty: string,
   selectedTags: { tag: string; color: string }[],
   delTags: string[],
-  reader: _ZoteroTypes.ReaderInstance<"pdf" | "epub" | "snapshot">,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  reader: any,
   params: {
     annotation?: _ZoteroTypes.Annotations.AnnotationJson | undefined;
     ids?: any;
@@ -1220,7 +1225,7 @@ export async function saveAnnotationTags(
     if (reader) {
       const item = reader._item;
       if (params.ids) {
-        const existAnnotations = item.getAnnotations().filter((f) => params.ids.includes(f.key));
+        const existAnnotations = item.getAnnotations().filter((f: Zotero.Item) => params.ids.includes(f.key));
         for (const annotation of existAnnotations) {
           for (const tag of tagsRequire) {
             if (!annotation.hasTag(tag)) {
@@ -1241,6 +1246,46 @@ export async function saveAnnotationTags(
       } else {
         const color = selectedTags.map((a) => a.color).filter((f) => f)[0] || memFixedColor(tagsRequire[0], undefined);
         const tags = tagsRequire.map((a) => ({ name: a }));
+
+        // ===== TXT (SimpleTextReader) 标注创建 =====
+        if (isSimpleTextReader(reader)) {
+          ztoolkit.log("[saveAnnotationTags] Creating TXT annotation");
+
+          // 从 DOM Selection 计算文本位置
+          const textPos = getTextPositionFromSelection(doc);
+          if (!textPos) {
+            ztoolkit.log("[saveAnnotationTags] No valid text selection found for TXT");
+            return false;
+          }
+
+          ztoolkit.log("[saveAnnotationTags] TXT position:", textPos);
+
+          try {
+            // 创建 TXT 标注
+            const newAnnItem = await createTextAnnotation(
+              item,  // TXT 附件 item
+              textPos,
+              {
+                type: annotationType || 'highlight',
+                color,
+                tags,
+                comment,
+              }
+            );
+
+            if (newAnnItem) {
+              ztoolkit.log("[saveAnnotationTags] TXT annotation created:", newAnnItem.key);
+              memoizeAsyncGroupAllTagsDB.replaceCacheByKey();
+              memRelateTags.replaceCacheByArgs(item);
+              return [newAnnItem];
+            }
+          } catch (e) {
+            ztoolkit.log("[saveAnnotationTags] TXT annotation creation failed:", e);
+          }
+          return false;
+        }
+
+        // ===== PDF/EPUB/Snapshot 标注创建（原有逻辑） =====
         Zotero.API.r_reader = reader;
         //@ts-ignore 访问textSelectionAnnotationMode
         const _annotationType = reader?._state?.textSelectionAnnotationMode || "highlight";

@@ -5,6 +5,7 @@ import { addCssFile, getItem, isDebug } from "../utils/zzlb";
 import { groupBy } from "../utils/groupBy";
 import { AnnotationPopup } from "./AnnotationPopup";
 import { Relations } from "../utils/Relations";
+import { isSupportedReader, isSimpleTextReader } from "../utils/readerType";
 // import { text2Ma } from "./readerTools";
 function register() {
   // if (!getPref("enable")) return;
@@ -29,6 +30,14 @@ function unregister() {
 
 function renderTextSelectionPopup(event: _ZoteroTypes.Reader.EventParams<"renderTextSelectionPopup">) {
   const { append, reader, doc, params } = event;
+
+  // Only process supported reader types (PDF, EPUB, Snapshot, TXT)
+  // Unknown types (plugins without proper reader) should be skipped
+  if (!isSupportedReader(reader)) {
+    ztoolkit.log("[annotations] Skipping unsupported reader type");
+    return;
+  }
+
   const filename = "annotation.css";
   addCssFile(doc, filename, true);
   // ztoolkit.log("addCssFile doc", doc)
@@ -83,6 +92,13 @@ function renderTextSelectionPopup(event: _ZoteroTypes.Reader.EventParams<"render
 }
 function createAnnotationContextMenu(event: _ZoteroTypes.Reader.EventParams<"createAnnotationContextMenu">) {
   const { reader, params, append } = event;
+
+  // Only process supported reader types
+  if (!isSupportedReader(reader)) {
+    ztoolkit.log("[annotations] Skipping unsupported reader type for context menu");
+    return;
+  }
+
   if (getPref("hide-in-annotation-context-menu")) {
     return;
   }

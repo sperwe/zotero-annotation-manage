@@ -31,8 +31,43 @@ import { AnnotationMatrix, content2AnnotationMatrix } from "../component/Annotat
 import { ProgressWindowHelper, TagElementProps } from "zotero-plugin-toolkit";
 // import { groupBy } from "lodash";
 
+/**
+ * Check if an attachment is a TXT file
+ */
+function isTxtAttachment(item: Zotero.Item): boolean {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const mimeType = (item as any).attachmentMIMEType;
+  return mimeType === 'text/plain';
+}
+
+/**
+ * Parse TXT position from annotation position JSON string
+ */
+function parseTxtPosition(annotationPosition: string | undefined): { pageIndex: number } | null {
+  if (!annotationPosition) return null;
+  try {
+    const pos = JSON.parse(annotationPosition);
+    if (pos?.text?.pageIndex !== undefined) {
+      return { pageIndex: pos.text.pageIndex };
+    }
+  } catch {
+    // Not a valid JSON or not a TXT position
+  }
+  return null;
+}
+
 export function getAllAnnotations(items: Zotero.Item[]) {
-  const items1 = items.map((a) => (a.isAttachment() && a.isPDFAttachment() && a.parentItem ? a.parentItem : a));
+  // Support both PDF and TXT attachments
+  const items1 = items.map((a) => {
+    if (a.isAttachment() && a.parentItem) {
+      // Check for PDF or TXT attachments
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if (a.isPDFAttachment() || isTxtAttachment(a)) {
+        return a.parentItem;
+      }
+    }
+    return a;
+  });
   // ztoolkit.log(4444, items1);
   const data = uniqueBy(items1, (a) => a.key)
     .filter((f) => !f.isAttachment())
@@ -47,27 +82,37 @@ export function getAllAnnotations(items: Zotero.Item[]) {
       const title = item.getField("title");
       // ztoolkit.log(555, item);
       return Zotero.Items.get(item.getAttachments(false))
-        .filter((f) => f.isAttachment() && f.isPDFAttachment())
-        .flatMap((pdf) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .filter((f: any) => f.isPDFAttachment() || isTxtAttachment(f))
+        .flatMap((attachment) => {
           // ztoolkit.log(666, pdf);
-          const pdfTitle = pdf.getDisplayTitle();
-          return pdf.getAnnotations().flatMap((ann) => {
+          const attachmentTitle = attachment.getDisplayTitle();
+          // For TXT, use "段落" instead of "page"
+          const isTxt = isTxtAttachment(attachment);
+          return attachment.getAnnotations().flatMap((ann) => {
             const text = ann.annotationText || "";
             const comment = ann.annotationComment || "";
             const color = ann.annotationColor;
             const type = ann.annotationType;
             const tags = ann.getTags();
             const annotationTags = tags.map((a) => a.tag).join("  ");
-            const page = ann.annotationPageLabel;
+            // For TXT, use paragraph index from annotationPosition
+            let page = ann.annotationPageLabel;
+            if (!page && isTxt) {
+              const txtPos = parseTxtPosition(ann.annotationPosition);
+              if (txtPos) {
+                page = `段落 ${txtPos.pageIndex + 1}`;
+              }
+            }
             const dateModified = ann.dateModified;
             const o = {
               item,
-              pdf,
+              pdf: attachment,
               ann,
               author,
               year,
               title,
-              pdfTitle,
+              pdfTitle: attachmentTitle,
               text,
               color,
               type,
