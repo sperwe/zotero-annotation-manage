@@ -18,6 +18,12 @@ export interface TextAnnotationPosition {
   charEnd: number;
   /** Selected text content */
   text: string;
+  /** Text quote anchor used to relocate highlights after reader pagination changes */
+  anchor?: {
+    exact: string;
+    prefix: string;
+    suffix: string;
+  };
 }
 
 /**

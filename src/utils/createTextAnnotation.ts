@@ -33,6 +33,22 @@ function formatCardTimestamp(date = new Date()): string {
   return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}${pad(date.getHours())}${pad(date.getMinutes())}`;
 }
 
+function htmlToText(html: string): string {
+  return unescapeHtml(
+    html
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/p>/gi, "\n")
+      .replace(/<[^>]+>/g, "")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim(),
+  );
+}
+
+function extractCoreExcerptFromNote(note: string): string {
+  const blockquote = note.match(/<blockquote[^>]*>([\s\S]*?)<\/blockquote>/i)?.[1];
+  return blockquote ? htmlToText(blockquote) : "";
+}
+
 export function parseTextAnnotationNote(noteItem: Zotero.Item, attachmentItem?: Zotero.Item) {
   if (!noteItem?.isNote?.()) return null;
   const note = noteItem.getNote?.() || "";
@@ -47,6 +63,19 @@ export function parseTextAnnotationNote(noteItem: Zotero.Item, attachmentItem?: 
     const meta = JSON.parse(unescapeHtml(match[1]));
     if (meta?.marker !== TXT_NOTE_MARKER) return null;
     if (attachmentItem && meta.attachmentKey !== attachmentItem.key) return null;
+    const coreExcerpt = extractCoreExcerptFromNote(note);
+    if (coreExcerpt) {
+      meta.text = coreExcerpt;
+      meta.position = {
+        ...meta.position,
+        text: coreExcerpt,
+        anchor: {
+          exact: meta.position?.anchor?.exact || coreExcerpt,
+          prefix: meta.position?.anchor?.prefix || "",
+          suffix: meta.position?.anchor?.suffix || "",
+        },
+      };
+    }
     return meta as {
       marker: string;
       attachmentKey: string;
@@ -57,6 +86,7 @@ export function parseTextAnnotationNote(noteItem: Zotero.Item, attachmentItem?: 
       position: TextAnnotationPosition;
       text: string;
       comment: string;
+      createdAt?: string;
     };
   } catch {
     return null;
@@ -95,6 +125,7 @@ export async function createTextAnnotation(
     charStart: position.charStart,
     charEnd: position.charEnd,
     text: position.text,
+    anchor: position.anchor,
   };
   const createdAt = formatCardTimestamp();
   const meta = {
@@ -128,10 +159,11 @@ export async function createTextAnnotation(
   const note = new Zotero.Item("note");
   note.libraryID = attachmentItem.libraryID;
   note.parentID = attachmentItem.parentItemID || attachmentItem.id;
-  note.setNote(
+  const renderNote = (noteKey = "") =>
     `<div data-zam-txt-annotation="true" style="border-left:4px solid ${escapeHtml(color)};padding-left:12px;">` +
       `<h2>${createdAt}｜卡片｜${escapeHtml(pageLabel)}｜</h2>` +
       `<!-- ZAM_TXT_ANNOTATION_META:${escapedMeta}:ZAM_TXT_ANNOTATION_META_END -->` +
+      `<p><a href="zotero://select/library/items/${escapeHtml(attachmentItem.key)}#zam-txt-return=${escapeHtml(noteKey)}" data-zam-txt-return-key="${escapeHtml(noteKey)}">返回 TXT 摘录</a></p>` +
       `<p><strong>核心摘录</strong></p>` +
       `<blockquote>${excerptHtml}</blockquote>` +
       `<p><strong>我的理解</strong></p>` +
@@ -142,8 +174,8 @@ export async function createTextAnnotation(
       `<ul><li> </li></ul>` +
       `<p><strong>来源</strong>：${escapeHtml(sourceTitle)}｜${escapeHtml(pageLabel)}｜字符 ${position.charStart}-${position.charEnd}｜摘录时间 ${createdAt}</p>` +
       (tagNames.length ? `<p><strong>标签</strong>：${tagNames.map(escapeHtml).join("、")}</p>` : "") +
-      `</div>`,
-  );
+      `</div>`;
+  note.setNote(renderNote());
 
   for (const tag of tags) {
     note.addTag(tag.name, 0);
@@ -155,6 +187,10 @@ export async function createTextAnnotation(
     metaLen: JSON.stringify(meta).length,
   });
   await note.saveTx();
+  if (note.key) {
+    note.setNote(renderNote(note.key));
+    await note.saveTx();
+  }
 
   txtLog("create:note-success", {
     key: note.key,

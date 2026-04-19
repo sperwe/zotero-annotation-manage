@@ -6,7 +6,7 @@ import { groupBy } from "../utils/groupBy";
 import { AnnotationPopup } from "./AnnotationPopup";
 import { Relations } from "../utils/Relations";
 import { isSupportedReader, isSimpleTextReader } from "../utils/readerType";
-import { getTextPositionFromSelection, highlightTextPosition } from "../utils/textPosition";
+import { getTextPositionFromSelection, highlightTextPosition, scrollToTextPosition } from "../utils/textPosition";
 import { txtLog, txtLogError } from "../utils/txtLog";
 import { parseTextAnnotationNote } from "../utils/createTextAnnotation";
 // import { text2Ma } from "./readerTools";
@@ -14,6 +14,9 @@ import { parseTextAnnotationNote } from "../utils/createTextAnnotation";
 const simpleTextReaderCleanups: Array<() => void> = [];
 const simpleTextReaderDocs = new WeakSet<Document>();
 const simpleTextReaderBrowsers = new WeakSet<Element>();
+const txtReturnClickDocs = new WeakSet<Document>();
+const simpleTextReaderJumpers = new Map<string, { jump: (noteKey: string) => boolean; win: Window; tabID?: string }>();
+let pendingTxtReturnKey = "";
 
 function register() {
   // if (!getPref("enable")) return;
@@ -49,6 +52,7 @@ function registerSimpleTextReaderBridge() {
     if (!deck) continue;
 
     const discover = () => installSimpleTextReaderDocs(win);
+    installTxtReturnClickDoc(win.document);
     discover();
 
     const observer = new win.MutationObserver(discover);
@@ -60,6 +64,65 @@ function registerSimpleTextReaderBridge() {
     (win as any).__zoteroAnnotationManageTxtBridgeWindowCleanup = cleanup;
     simpleTextReaderCleanups.push(cleanup);
   }
+}
+
+function installTxtReturnClickDoc(doc?: Document) {
+  if (!doc || txtReturnClickDocs.has(doc)) return;
+  txtReturnClickDocs.add(doc);
+  const onClick = (event: Event) => {
+    const target = event.target as Element | null;
+    const link = target?.closest?.("a[data-zam-txt-return-key],a[href*='zam-txt-return=']") as HTMLAnchorElement | null;
+    const hrefKey = link?.getAttribute("href")?.match(/[?#&]zam-txt-return=([^&#]+)/)?.[1];
+    const noteKey = link?.dataset?.zamTxtReturnKey || (hrefKey ? decodeURIComponent(hrefKey) : "");
+    if (!noteKey) return;
+    event.preventDefault();
+    event.stopPropagation();
+    txtLog("return:click", { noteKey });
+    returnToTxtNote(noteKey);
+  };
+  doc.addEventListener("click", onClick, true);
+  simpleTextReaderCleanups.push(() => doc.removeEventListener("click", onClick, true));
+}
+
+function findTabIDForDoc(win: Window, doc: Document): string | undefined {
+  const tabs = (win as any).Zotero_Tabs;
+  for (const tab of tabs?._tabs || []) {
+    const browsers = Array.from(tab.container?.querySelectorAll?.("browser") || []) as any[];
+    for (const browser of browsers) {
+      if (browser.contentDocument === doc) return tab.id;
+      const innerBrowser = browser.contentDocument?.getElementById?.("reader-browser") as any;
+      if (innerBrowser?.contentDocument === doc) return tab.id;
+    }
+  }
+  return undefined;
+}
+
+function returnToTxtNote(noteKey: string) {
+  const note = getItem(noteKey);
+  const meta = note ? parseTextAnnotationNote(note) : null;
+  if (!meta) {
+    txtLog("return:meta-missing", { noteKey });
+    return;
+  }
+  pendingTxtReturnKey = noteKey;
+  const attachment = getItem(meta.attachmentKey) || (Zotero.Items.exists(meta.attachmentID) ? Zotero.Items.get(meta.attachmentID) : undefined);
+  if (!attachment) {
+    txtLog("return:attachment-missing", { noteKey, attachmentKey: meta.attachmentKey, attachmentID: meta.attachmentID });
+    return;
+  }
+  const pane = Zotero.getActiveZoteroPane() as any;
+  const reader = simpleTextReaderJumpers.get(meta.attachmentKey);
+  const tabID = reader?.tabID || (reader?.win as any)?.Zotero_Tabs?.getTabIDByItemID?.(attachment.id);
+  if (tabID) (reader?.win as any)?.Zotero_Tabs?.select(tabID);
+  else pane.selectItem?.(attachment.id);
+  txtLog("return:start", { noteKey, attachmentKey: meta.attachmentKey, hasReader: !!reader, tabID });
+  const jump = () => {
+    const jumped = simpleTextReaderJumpers.get(meta.attachmentKey)?.jump(noteKey);
+    txtLog("return:jump-after-open", { noteKey, attachmentKey: meta.attachmentKey, jumped });
+    if (jumped) pendingTxtReturnKey = "";
+  };
+  setTimeout(jump, 300);
+  setTimeout(jump, 900);
 }
 
 function installSimpleTextReaderDocs(win: Window) {
@@ -76,6 +139,7 @@ function installSimpleTextReaderDocs(win: Window) {
 
     const shellDoc = (browser as any).contentDocument as Document | undefined;
     const shellWin = (browser as any).contentWindow as Window | undefined;
+    installTxtReturnClickDoc(shellDoc);
     installSimpleTextReaderDoc(win, shellWin, shellDoc);
 
     const innerBrowser = shellDoc?.getElementById("reader-browser");
@@ -90,6 +154,7 @@ function installSimpleTextReaderDocs(win: Window) {
       (innerBrowser as any)?.contentWindow as Window | undefined,
       (innerBrowser as any)?.contentDocument as Document | undefined,
     );
+    installTxtReturnClickDoc((innerBrowser as any)?.contentDocument as Document | undefined);
   });
 }
 
@@ -116,6 +181,7 @@ function installSimpleTextReaderDoc(_win: Window, contentWin?: Window, doc?: Doc
   let popup: AnnotationPopup | undefined;
   let timer: number | undefined;
   let interactingWithPopup = false;
+  let interactingWithHighlight = false;
   let restoringSelection = false;
   let restoringHighlights = false;
   let restoreHighlightsTimer: number | undefined;
@@ -124,8 +190,17 @@ function installSimpleTextReaderDoc(_win: Window, contentWin?: Window, doc?: Doc
   let lastRange: Range | null = null;
   const excerptButtonStyle = doc.createElement("style");
   excerptButtonStyle.textContent =
-    ".str-excerpt-button{display:none!important;}.zam-txt-highlight-segment{background:var(--zam-txt-highlight-bg,rgba(255,212,0,.35));border-bottom:2px solid var(--zam-txt-highlight-color,#ffd400);box-sizing:border-box;}.zam-txt-highlight-action{position:absolute;min-width:18px;height:18px;border:1px solid var(--zam-txt-highlight-color,#ffd400);border-radius:9px;background:#fff;color:#111;font:12px/16px sans-serif;padding:0;pointer-events:auto;z-index:3;cursor:pointer;box-shadow:0 1px 5px rgba(0,0,0,.18);}";
+    ".str-excerpt-button{display:none!important;}.zam-txt-highlight-segment{background:var(--zam-txt-highlight-bg,rgba(255,212,0,.35));border-bottom:2px solid var(--zam-txt-highlight-color,#ffd400);box-sizing:border-box;}.zam-txt-highlight-action{position:absolute;min-width:18px;height:18px;border:1px solid var(--zam-txt-highlight-color,#ffd400);border-radius:9px;background:#fff;color:#111;font:12px/16px sans-serif;padding:0;pointer-events:auto;z-index:3;cursor:pointer;box-shadow:0 1px 5px rgba(0,0,0,.18);}.zam-txt-highlight-action::before{content:'...';position:relative;top:-1px}.zam-txt-highlight-menu{position:absolute;display:flex;gap:4px;padding:4px;border:1px solid #bbb;border-radius:4px;background:#fff;box-shadow:0 2px 10px rgba(0,0,0,.18);pointer-events:auto;z-index:4;white-space:nowrap}.zam-txt-highlight-menu button{height:24px;border:1px solid #bbb;border-radius:4px;background:#fff;color:#111;font:12px/20px sans-serif;padding:1px 8px;cursor:pointer}.zam-txt-highlight-menu button:hover{background:#f2f2f2}.zam-txt-highlight-menu .danger{border-color:#c44;color:#a00}";
   doc.documentElement.appendChild(excerptButtonStyle);
+
+  const isHighlightUiNode = (node: Node | null) => {
+    if (!node) return false;
+    const element =
+      node.nodeType === 1
+        ? (node as Element)
+        : ((node as ChildNode).parentElement ?? ((node as ChildNode).parentNode as Element | null));
+    return !!element?.closest?.(".zam-txt-highlight-overlay,.zam-txt-highlight-menu,.zam-txt-highlight-action");
+  };
 
   const applyTxtHighlight = (position: ReturnType<typeof getTextPositionFromSelection>, color = "#ffd400", key = "") => {
     if (!position) return;
@@ -141,28 +216,80 @@ function installSimpleTextReaderDoc(_win: Window, contentWin?: Window, doc?: Doc
           const action = doc.createElement("button");
           action.type = "button";
           action.className = "zam-txt-highlight-action";
-          action.textContent = "⋯";
           action.title = "打开/删除 TXT 卡片";
           action.style.left = firstSegment.style.left;
           action.style.top = `calc(${firstSegment.style.top} - 20px)`;
-          action.addEventListener("click", async (event) => {
+          action.addEventListener("click", (event) => {
             event.preventDefault();
             event.stopPropagation();
+            interactingWithHighlight = true;
+            doc.querySelectorAll(".zam-txt-highlight-menu").forEach((el) => el.remove());
             const note = getItem(key);
             if (!note) {
               mark.remove();
               txtLog("highlight:note-missing", { key });
+              interactingWithHighlight = false;
               return;
             }
-            const remove = contentWin.confirm("删除这条 TXT 卡片摘录？\n取消则打开卡片笔记。");
-            if (remove) {
-              await note.eraseTx();
-              mark.remove();
-              txtLog("highlight:deleted", { key });
-            } else {
+            if (!parseTextAnnotationNote(note, item)) {
+              txtLog("highlight:not-txt-note", { key, id: note.id });
+              interactingWithHighlight = false;
+              return;
+            }
+
+            const menu = doc.createElement("span");
+            menu.className = "zam-txt-highlight-menu";
+            menu.style.left = action.style.left;
+            menu.style.top = `calc(${firstSegment.style.top} + 2px)`;
+            const closeMenu = () => {
+              menu.remove();
+              contentWin.setTimeout(() => {
+                interactingWithHighlight = false;
+              }, 80);
+            };
+            const openButton = doc.createElement("button");
+            openButton.type = "button";
+            openButton.textContent = "打开卡片";
+            openButton.addEventListener("click", (menuEvent) => {
+              menuEvent.preventDefault();
+              menuEvent.stopPropagation();
               Zotero.getActiveZoteroPane().selectItem(note.id);
               txtLog("highlight:open-note", { key, id: note.id });
-            }
+              closeMenu();
+            });
+            const deleteButton = doc.createElement("button");
+            deleteButton.type = "button";
+            deleteButton.className = "danger";
+            deleteButton.textContent = "删除摘录";
+            deleteButton.addEventListener("click", async (menuEvent) => {
+              menuEvent.preventDefault();
+              menuEvent.stopPropagation();
+              if (!contentWin.confirm("确定删除这条 TXT 卡片摘录？")) return;
+              await note.eraseTx();
+              mark.remove();
+              txtLog("highlight:deleted", { key, id: note.id });
+              closeMenu();
+            });
+            const closeButton = doc.createElement("button");
+            closeButton.type = "button";
+            closeButton.textContent = "关闭";
+            closeButton.addEventListener("click", (menuEvent) => {
+              menuEvent.preventDefault();
+              menuEvent.stopPropagation();
+              closeMenu();
+              txtLog("highlight:menu-close", { key });
+            });
+            menu.addEventListener(
+              "mousedown",
+              (menuEvent) => {
+                menuEvent.preventDefault();
+                menuEvent.stopPropagation();
+              },
+              true,
+            );
+            menu.append(openButton, deleteButton, closeButton);
+            mark.appendChild(menu);
+            txtLog("highlight:menu-open", { key, id: note.id });
           });
           mark.appendChild(action);
         }
@@ -173,10 +300,23 @@ function installSimpleTextReaderDoc(_win: Window, contentWin?: Window, doc?: Doc
     }
   };
 
+  const jumpToTxtNote = (noteKey: string) => {
+    const note = getItem(noteKey);
+    const meta = note ? parseTextAnnotationNote(note, item) : null;
+    if (!meta) return false;
+    const ok = scrollToTextPosition(doc, meta.position);
+    txtLog("return:jump", { noteKey, ok });
+    return ok;
+  };
+  const tabID = (_win as any).Zotero_Tabs?.getTabIDByItemID?.(item.id) || findTabIDForDoc(_win, doc);
+  simpleTextReaderJumpers.set(item.key, { jump: jumpToTxtNote, win: _win, tabID });
+  txtLog("return:register-reader", { attachmentKey: item.key, itemID: item.id, tabID });
+
   const restoreSavedHighlights = (reason = "manual") => {
     const parentItem = item.parentItem;
     if (!parentItem) return;
     restoringHighlights = true;
+    doc.querySelectorAll(".zam-txt-highlight-menu").forEach((el) => el.remove());
     doc.querySelectorAll(".zam-txt-highlight-overlay").forEach((el) => el.remove());
     let count = 0;
     Zotero.Items.get(parentItem.getNotes(false)).forEach((note) => {
@@ -188,10 +328,11 @@ function installSimpleTextReaderDoc(_win: Window, contentWin?: Window, doc?: Doc
     txtLog("highlight:restore", { reason, count });
     contentWin.setTimeout(() => {
       restoringHighlights = false;
-    }, 0);
+    }, 120);
   };
   const scheduleRestoreSavedHighlights = (reason: string) => {
     if (restoringHighlights) return;
+    if (interactingWithHighlight) return;
     if (restoreHighlightsTimer) contentWin.clearTimeout(restoreHighlightsTimer);
     restoreHighlightsTimer = contentWin.setTimeout(() => {
       restoreHighlightsTimer = undefined;
@@ -199,28 +340,21 @@ function installSimpleTextReaderDoc(_win: Window, contentWin?: Window, doc?: Doc
     }, 250);
   };
   contentWin.setTimeout(() => restoreSavedHighlights("install"), 300);
+  contentWin.setTimeout(() => {
+    if (pendingTxtReturnKey && jumpToTxtNote(pendingTxtReturnKey)) pendingTxtReturnKey = "";
+  }, 600);
   const highlightObserver = new contentWin.MutationObserver((mutations: MutationRecord[]) => {
     if (restoringHighlights) return;
-    const changedNodes: Node[] = [];
-    mutations.forEach((mutation: MutationRecord) => {
-      Array.from(mutation.addedNodes).forEach((node) => {
-        if (node) changedNodes.push(node);
-      });
-      Array.from(mutation.removedNodes).forEach((node) => {
-        if (node) changedNodes.push(node);
-      });
+    const onlyHighlightUiChanged = mutations.every((mutation) => {
+      const changedNodes = Array.from(mutation.addedNodes).concat(Array.from(mutation.removedNodes));
+      return isHighlightUiNode(mutation.target) || (changedNodes.length > 0 && changedNodes.every(isHighlightUiNode));
     });
-    if (
-      changedNodes.length > 0 &&
-      changedNodes.every(
-        (node: Node) => node instanceof contentWin.HTMLElement && (node as HTMLElement).classList.contains("zam-txt-highlight-overlay"),
-      )
-    ) {
+    if (onlyHighlightUiChanged) {
       return;
     }
     scheduleRestoreSavedHighlights("mutation");
   });
-  highlightObserver.observe(contentElement, { childList: true, subtree: true, attributes: true });
+  highlightObserver.observe(contentElement, { childList: true, attributes: true, attributeFilter: ["class", "style"] });
   highlightObserver.observe(doc.documentElement, { attributes: true, attributeFilter: ["class", "style"] });
   if (doc.body) highlightObserver.observe(doc.body, { attributes: true, attributeFilter: ["class", "style"] });
 
@@ -419,6 +553,7 @@ function installSimpleTextReaderDoc(_win: Window, contentWin?: Window, doc?: Doc
     doc.removeEventListener("selectionchange", onSelectionChange);
     highlightObserver.disconnect();
     if (restoreHighlightsTimer) contentWin.clearTimeout(restoreHighlightsTimer);
+    simpleTextReaderJumpers.delete(item.key);
     excerptButtonStyle.remove();
     simpleTextReaderDocs.delete(doc);
     delete (contentWin as any).__zoteroAnnotationManageGetLastTextPosition;
