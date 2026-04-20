@@ -16,6 +16,140 @@ import { sortFixedTags10ValuesLength, sortValuesLength } from "./utils/sort";
 // import { TagElementProps } from "zotero-plugin-toolkit/dist/tools/ui";
 import { annotationToNoteTags, annotationToNoteType, annotationToNoteColor } from "./hooksMenuEvent";
 import { createZToolkit } from "./utils/ztoolkit";
+import { txtLog } from "./utils/txtLog";
+
+const keyLInterceptorDocs = new WeakSet<Document>();
+const keyLKnownDocs = new Set<Document>();
+const keyLInterceptorWindows = new WeakSet<Window>();
+const keyLInterceptorCleanups: Array<() => void> = [];
+const readAloudGuardedReaders = new WeakSet<object>();
+
+function isElementLike(node: unknown): node is Element {
+  return !!node && typeof node === "object" && (node as Node).nodeType === 1 && typeof (node as Element).matches === "function";
+}
+
+function isEditableElement(element: Element): boolean {
+  const editable = element.getAttribute("contenteditable");
+  return (
+    element.matches("input, textarea, select") ||
+    editable === "" ||
+    (editable != null && editable.toLowerCase() !== "false") ||
+    !!element.closest("input, textarea, select, [contenteditable]:not([contenteditable='false']), [data-zam-annotation-card], .selection-popup")
+  );
+}
+
+function isEditableKeyTarget(event: KeyboardEvent): boolean {
+  const path = typeof event.composedPath === "function" ? event.composedPath() : [];
+  const current = event.currentTarget as Document | Window | null;
+  const activeElement = current instanceof Document ? current.activeElement : current?.document?.activeElement;
+  const nodes = path.length ? path : [event.target, activeElement].filter(Boolean);
+  return nodes.some((node) => {
+    if (!isElementLike(node)) return false;
+    return isEditableElement(node);
+  });
+}
+
+function docHasFocusedEditable(doc?: Document | null): boolean {
+  const active = doc?.activeElement;
+  return isElementLike(active) && isEditableElement(active);
+}
+
+function shouldBlockReaderReadAloud(reader: any) {
+  const docs = [
+    reader?._iframeWindow?.document,
+    reader?._primaryView?._iframeWindow?.document,
+    reader?._lastView?._iframeWindow?.document,
+    reader?._window?.document,
+    Zotero.getMainWindow?.()?.document,
+    ...Array.from(keyLKnownDocs),
+  ];
+  return docs.some(docHasFocusedEditable);
+}
+
+function guardReadAloudTarget(target: any) {
+  if (!target || typeof target !== "object" || readAloudGuardedReaders.has(target)) return;
+  if (typeof target.startReadAloudAtPosition !== "function") return;
+  readAloudGuardedReaders.add(target);
+
+  const originalStart = target.startReadAloudAtPosition;
+  target.startReadAloudAtPosition = function (...args: unknown[]) {
+    if (shouldBlockReaderReadAloud(this)) {
+      txtLog("keyl:block-start-read-aloud", {
+        activeTag:
+          this?._iframeWindow?.document?.activeElement?.tagName ||
+          this?._primaryView?._iframeWindow?.document?.activeElement?.tagName ||
+          Zotero.getMainWindow?.()?.document?.activeElement?.tagName,
+      });
+      return;
+    }
+    return originalStart.apply(this, args);
+  };
+  txtLog("keyl:guard-installed", {
+    hasIframe: !!target._iframeWindow,
+    hasPrimaryView: !!target._primaryView,
+  });
+}
+
+function installReadAloudGuards() {
+  for (const reader of Array.from((Zotero.Reader as any)?._readers || [])) {
+    guardReadAloudTarget(reader);
+    guardReadAloudTarget((reader as any)?._internalReader);
+  }
+}
+
+function interceptReaderKeyL(event: KeyboardEvent) {
+  if (event.code !== "KeyL" && event.key?.toLowerCase() !== "l") return;
+  if (!isEditableKeyTarget(event)) return;
+  ztoolkit.log("[KeyL interceptor] stop in editable", event.code, event.key);
+  event.stopPropagation();
+  event.stopImmediatePropagation?.();
+}
+
+function addKeyLListenerToWindow(win?: Window | null) {
+  if (!win || keyLInterceptorWindows.has(win)) return;
+  keyLInterceptorWindows.add(win);
+  win.addEventListener("keydown", interceptReaderKeyL, true);
+  keyLInterceptorCleanups.push(() => win.removeEventListener("keydown", interceptReaderKeyL, true));
+}
+
+function addKeyLListenerToDoc(doc?: Document | null) {
+  if (!doc || keyLInterceptorDocs.has(doc)) return;
+  keyLInterceptorDocs.add(doc);
+  keyLKnownDocs.add(doc);
+  doc.addEventListener("keydown", interceptReaderKeyL, true);
+  keyLInterceptorCleanups.push(() => {
+    doc.removeEventListener("keydown", interceptReaderKeyL, true);
+    keyLKnownDocs.delete(doc);
+  });
+  addKeyLListenerToWindow(doc.defaultView);
+}
+
+function installKeyLInterceptors(win: Window) {
+  (win as any).__zoteroAnnotationManageKeyLCleanup?.();
+
+  const discoverDocs = () => {
+    addKeyLListenerToDoc(win.document);
+    for (const iframe of Array.from(win.document.querySelectorAll("iframe,browser")) as HTMLIFrameElement[]) {
+      try {
+        addKeyLListenerToDoc(iframe.contentDocument);
+      } catch (e) {
+        ztoolkit.log("[KeyL interceptor] iframe discover error", e);
+      }
+    }
+    installReadAloudGuards();
+  };
+
+  discoverDocs();
+  const observer = new win.MutationObserver(discoverDocs);
+  observer.observe(win.document.documentElement, { childList: true, subtree: true });
+  const cleanup = () => {
+    observer.disconnect();
+    delete (win as any).__zoteroAnnotationManageKeyLCleanup;
+  };
+  (win as any).__zoteroAnnotationManageKeyLCleanup = cleanup;
+  keyLInterceptorCleanups.push(cleanup);
+  ztoolkit.log("[KeyL interceptor] installed");
+}
 
 async function onStartup() {
   await Promise.all([Zotero.initializationPromise, Zotero.unlockPromise, Zotero.uiReadyPromise]);
@@ -60,6 +194,10 @@ async function onMainWindowLoad(win: Window): Promise<void> {
   toolLink.register();
   // registeredID_showAnnotations()
   registerPrefsWindow();
+
+  // Zotero Reader maps KeyL to Read Aloud. Keep that shortcut in normal
+  // browsing, but stop it while focus is inside plugin/editor inputs.
+  installKeyLInterceptors(win);
 }
 
 async function onMainWindowUnload(win: Window): Promise<void> {
@@ -69,6 +207,7 @@ async function onMainWindowUnload(win: Window): Promise<void> {
   RelationHeader.unregister();
   highlightWords.unregister();
   toolLink.unregister();
+  (win as any).__zoteroAnnotationManageKeyLCleanup?.();
   // unregisteredID_showAnnotations()
   ztoolkit.unregisterAll();
   addon.data.dialog?.window?.close();
@@ -77,6 +216,9 @@ async function onMainWindowUnload(win: Window): Promise<void> {
 
 function onShutdown(): void {
   ztoolkit.log("onShutdown");
+  while (keyLInterceptorCleanups.length) {
+    keyLInterceptorCleanups.pop()?.();
+  }
   ztoolkit.unregisterAll();
   addon.data.dialog?.window?.close();
   // Remove addon object

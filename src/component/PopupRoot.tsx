@@ -1535,6 +1535,10 @@ export function PopupRoot({
                     }}
                     onKeyDownCapture={(e) => {
                       ztoolkit.log("按键记录textarea onKeyDown", e, comment);
+                      if (e.code === "KeyL" || e.key.toLowerCase() === "l") {
+                        e.stopPropagation();
+                        e.nativeEvent.stopImmediatePropagation?.();
+                      }
                       // Ctrl+Enter / Cmd+Enter 跳到标签搜索框
                       if (e.key == "Enter" && (e.ctrlKey || e.metaKey)) {
                         e.preventDefault();
@@ -1610,6 +1614,10 @@ export function PopupRoot({
                 placeholder="搜索标签"
                 onKeyDownCapture={(e) => {
                   ztoolkit.log("按键记录input onKeyDown", e);
+                  if (e.code === "KeyL" || e.key.toLowerCase() === "l") {
+                    e.stopPropagation();
+                    e.nativeEvent.stopImmediatePropagation?.();
+                  }
                   const searchTag = (e.target as HTMLInputElement).value;
                   // ztoolkit.log(e)
                   if (autoCloseSeconds > 0) {
