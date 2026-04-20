@@ -30,17 +30,11 @@ import * as React from "react";
 import { AnnotationMatrix, content2AnnotationMatrix } from "../component/AnnotationMatrix";
 import { ProgressWindowHelper, TagElementProps } from "zotero-plugin-toolkit";
 import { parseTextAnnotationNote } from "../utils/createTextAnnotation";
+import { isSimpleTextReaderAttachment } from "../utils/readerType";
 // import { groupBy } from "lodash";
 
-/**
- * Check if an attachment is a TXT file
- */
 function isTxtAttachment(item: Zotero.Item): boolean {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const mimeType = (((item as any).attachmentMIMEType || (item as any).attachmentContentType || "") as string).toLowerCase();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const attachmentPath = ((item as any).attachmentPath || "") as string;
-  return mimeType === "text/plain" || /\.txt$/i.test(attachmentPath);
+  return isSimpleTextReaderAttachment(item);
 }
 
 /**

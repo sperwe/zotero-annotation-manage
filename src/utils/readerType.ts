@@ -2,13 +2,22 @@
  * Reader Type Detection Utilities
  *
  * Detects the type of file being viewed in Zotero Reader.
- * Supports PDF, EPUB, Snapshot (HTML), and TXT (SimpleTextReader).
+ * Supports PDF, EPUB, Snapshot (HTML), and SimpleTextReader text formats.
  */
 
 /**
  * Supported reader types
  */
 export type ReaderType = "pdf" | "epub" | "snapshot" | "txt" | "unknown";
+
+export function isSimpleTextReaderAttachment(item?: Zotero.Item): boolean {
+  if (!item) return false;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const mimeType = (((item as any).attachmentMIMEType || (item as any).attachmentContentType || "") as string).toLowerCase();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const attachmentPath = ((item as any).attachmentPath || "") as string;
+  return ["text/plain", "text/markdown", "text/x-markdown"].includes(mimeType) || /\.(txt|md|markdown)$/i.test(attachmentPath);
+}
 
 /**
  * Get the reader type based on attachment MIME type
@@ -24,6 +33,8 @@ export function getReaderType(reader: _ZoteroTypes.ReaderInstance): ReaderType {
 
   switch (mimeType) {
     case "text/plain":
+    case "text/markdown":
+    case "text/x-markdown":
       return "txt";
     case "application/epub+zip":
       return "epub";
@@ -32,13 +43,13 @@ export function getReaderType(reader: _ZoteroTypes.ReaderInstance): ReaderType {
     case "application/pdf":
       return "pdf";
     default:
-      if (/\.txt$/i.test(attachmentPath)) return "txt";
+      if (/\.(txt|md|markdown)$/i.test(attachmentPath)) return "txt";
       return "unknown";
   }
 }
 
 /**
- * Check if the reader is SimpleTextReader (TXT files)
+ * Check if the reader is SimpleTextReader (plain text / Markdown files)
  */
 export function isSimpleTextReader(reader: _ZoteroTypes.ReaderInstance): boolean {
   return getReaderType(reader) === "txt";
@@ -66,7 +77,7 @@ export function getReaderTypeName(reader: _ZoteroTypes.ReaderInstance): string {
   const type = getReaderType(reader);
   switch (type) {
     case "txt":
-      return "SimpleTextReader (TXT)";
+      return "SimpleTextReader (Text/Markdown)";
     case "epub":
       return "EPUB";
     case "snapshot":

@@ -91,6 +91,14 @@ function getItemSafe(key: string) {
   }
 }
 
+function isMarkdownAttachment(attachmentItem: Zotero.Item) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const mimeType = (((attachmentItem as any).attachmentMIMEType || (attachmentItem as any).attachmentContentType || "") as string).toLowerCase();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const attachmentPath = ((attachmentItem as any).attachmentPath || "") as string;
+  return ["text/markdown", "text/x-markdown"].includes(mimeType) || /\.(md|markdown)$/i.test(attachmentPath);
+}
+
 export function parseTextAnnotationNote(noteItem: Zotero.Item, attachmentItem?: Zotero.Item) {
   if (!noteItem?.isNote?.()) return null;
   const note = noteItem.getNote?.() || "";
@@ -193,6 +201,7 @@ export async function createTextAnnotation(
   };
   const tagNames = tags.map((tag) => tag.name);
   const sourceTitle = attachmentItem.getDisplayTitle?.() || "TXT";
+  const returnLabel = isMarkdownAttachment(attachmentItem) ? "返回 Markdown 摘录" : "返回 TXT 摘录";
   const escapedMeta = escapeHtml(JSON.stringify(meta));
   const excerptHtml = escapeHtml(position.text).replace(/\n/g, "<br/>");
   const commentHtml = comment ? escapeHtml(comment).replace(/\n/g, "<br/>") : "";
@@ -215,7 +224,7 @@ export async function createTextAnnotation(
       `<h2>${createdAt}｜卡片｜${escapeHtml(pageLabel)}｜</h2>` +
       `<!-- ZAM_TXT_ANNOTATION_META:${escapedMeta}:ZAM_TXT_ANNOTATION_META_END -->` +
       `<span data-zam-txt-annotation-meta="${escapedMeta}" style="display:none">&nbsp;</span>` +
-      `<p><a href="zotero://select/library/items/${escapeHtml(attachmentItem.key)}#zam-txt-return=${escapeHtml(noteKey)}" data-zam-txt-return-key="${escapeHtml(noteKey)}">返回 TXT 摘录</a></p>` +
+      `<p><a href="zotero://select/library/items/${escapeHtml(attachmentItem.key)}#zam-txt-return=${escapeHtml(noteKey)}" data-zam-txt-return-key="${escapeHtml(noteKey)}">${returnLabel}</a></p>` +
       `<p><strong>核心摘录</strong></p>` +
       `<blockquote>${excerptHtml}</blockquote>` +
       `<p><strong>我的理解</strong></p>` +
