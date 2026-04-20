@@ -1504,48 +1504,71 @@ export function PopupRoot({
               </div> */}
 
               {bComment && !params.ids && (
-                <input
-                  type="text"
-                  tabIndex={0}
-                  onInput={(e) => {
-                    setComment(e.currentTarget.value);
-                  }}
-                  autoFocus={bAutoFocus}
-                  style={{ ...inputWidth(comment, 8), fontSize: fontSize }}
-                  placeholder="输入注释"
-                  onKeyDownCapture={(e) => {
-                    ztoolkit.log("按键记录input onKeyDown", e, comment);
-                    // setComment(e.currentTarget.value)
-                    if (e.key == "Enter") {
-                      e.preventDefault();
-                      refInputTag.current?.focus();
-                      return false;
-                    }
-                    if (bAutoFocus && !comment) {
-                      //自动获得焦点的时候，使用ctrl+C复制选中文本，如果文本框没有内容复制选中的pdf文字
-                      const text = params.annotation?.text;
-                      if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "c") {
-                        if (e.currentTarget.value == "" && text) {
-                          ztoolkit.log("复制", e, text);
+                <>
+                  <br />
+                  <textarea
+                    tabIndex={0}
+                    autoFocus={bAutoFocus}
+                    value={comment}
+                    rows={isTxtReader ? 4 : 3}
+                    style={{
+                      flex: "1 1 100%",
+                      width: "min(360px, calc(100vw - 48px))",
+                      minWidth: "150px",
+                      minHeight: isTxtReader ? "96px" : "84px",
+                      maxHeight: "220px",
+                      boxSizing: "border-box",
+                      margin: "6px 4px 8px 4px",
+                      padding: "8px 10px",
+                      border: "1px solid #b8b8b8",
+                      borderRadius: "6px",
+                      boxShadow: "inset 0 1px 3px rgba(0,0,0,.08)",
+                      background: "#fff",
+                      color: "#111",
+                      fontSize: fontSize + "px",
+                      lineHeight: "1.45",
+                      resize: "vertical",
+                    }}
+                    placeholder="输入注释"
+                    onChange={(e) => {
+                      setComment(e.currentTarget.value);
+                    }}
+                    onKeyDownCapture={(e) => {
+                      ztoolkit.log("按键记录textarea onKeyDown", e, comment);
+                      // Ctrl+Enter / Cmd+Enter 跳到标签搜索框
+                      if (e.key == "Enter" && (e.ctrlKey || e.metaKey)) {
+                        e.preventDefault();
+                        refInputTag.current?.focus();
+                        return false;
+                      }
+                      // Tab 跳到标签搜索框
+                      if (e.key == "Tab" && !e.shiftKey) {
+                        if (e.preventDefault) {
                           e.preventDefault();
-                          const cb = new ztoolkit.Clipboard();
-                          cb.addText(text);
-                          cb.copy();
-                          return false;
+                        } else {
+                          //@ts-ignore returnValue
+                          e.returnValue = false;
+                        }
+                        refInputTag.current?.focus();
+                        return false;
+                      }
+                      if (bAutoFocus && !comment) {
+                        //自动获得焦点的时候，使用ctrl+C复制选中文本，如果文本框没有内容复制选中的pdf文字
+                        const text = params.annotation?.text;
+                        if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "c") {
+                          if (e.currentTarget.value == "" && text) {
+                            ztoolkit.log("复制", e, text);
+                            e.preventDefault();
+                            const cb = new ztoolkit.Clipboard();
+                            cb.addText(text);
+                            cb.copy();
+                            return false;
+                          }
                         }
                       }
-                    }
-                    if (e.key == "Tab") {
-                      if (e.preventDefault) {
-                        e.preventDefault();
-                      } else {
-                        //@ts-ignore returnValue
-                        e.returnValue = false;
-                      }
-                      refInputTag.current?.focus();
-                    }
-                  }}
-                />
+                    }}
+                  />
+                </>
               )}
               {selectedTags.length > 0 && (
                 <>
